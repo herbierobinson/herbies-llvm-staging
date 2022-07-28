@@ -73,6 +73,9 @@ public:
     addDirectiveHandler<
       &ELFAsmParser::ParseDirectiveSymbolAttribute>(".hidden");
     addDirectiveHandler<&ELFAsmParser::ParseDirectiveSubsection>(".subsection");
+    addDirectiveHandler<&ELFAsmParser::ParseDirectiveSymbolAttribute>(".weak");
+    addDirectiveHandler<&ELFAsmParser::ParseDirectivePushEndian>(".pushendian");
+    addDirectiveHandler<&ELFAsmParser::ParseDirectivePopEndian>(".popendian");
   }
 
   // FIXME: Part of this logic is duplicated in the MCELFStreamer. What is
@@ -137,6 +140,8 @@ public:
   bool ParseDirectiveWeakref(StringRef, SMLoc);
   bool ParseDirectiveSymbolAttribute(StringRef, SMLoc);
   bool ParseDirectiveSubsection(StringRef, SMLoc);
+  bool ParseDirectivePushEndian(StringRef, SMLoc);
+  bool ParseDirectivePopEndian(StringRef, SMLoc);
 
 private:
   bool ParseSectionName(StringRef &SectionName);
@@ -775,6 +780,36 @@ bool ELFAsmParser::ParseDirectiveSubsection(StringRef, SMLoc) {
   Lex();
 
   getStreamer().SubSection(Subsection);
+  return false;
+}
+
+bool ELFAsmParser::ParseDirectivePushEndian(StringRef, SMLoc) {
+  
+  bool IsLittle = false;
+
+  if (getLexer().isNot(AsmToken::EndOfStatement)) {
+    if (getLexer().getTok().getString() == "big") {
+      Lex();
+    }
+    else if (getLexer().getTok().getString() == "little") {
+      Lex();
+      IsLittle = true;
+    }
+  }
+  
+  if (getLexer().isNot(AsmToken::EndOfStatement))
+    return TokError("unexpected token in directive");
+  
+  getStreamer().PushEndian(IsLittle);
+  return false;
+}
+
+bool ELFAsmParser::ParseDirectivePopEndian(StringRef, SMLoc) {
+  
+  if (getLexer().isNot(AsmToken::EndOfStatement))
+    return TokError("unexpected token in directive");
+  
+  getStreamer().PopEndian();
   return false;
 }
 

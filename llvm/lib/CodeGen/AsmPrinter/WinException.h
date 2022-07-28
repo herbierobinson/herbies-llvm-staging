@@ -38,6 +38,14 @@ class LLVM_LIBRARY_VISIBILITY WinException : public EHStreamer {
   /// True if this is a 64-bit target and we should use image relative offsets.
   bool useImageRel32 = false;
 
+  /// True if this is an ELF target with a non-windows unwinder that wants to
+  /// see symbol references relative to the beginning the structure, not absolute.
+  bool useBaseRel32 = false;
+  
+  /// True if this is a target with an unwinder that is smart enough
+  /// to subract 1 from return addresses when unwinding.
+  bool UnwinderCorrectsReturnIP = false;
+  
   /// Pointer to the current funclet entry BB.
   const MachineBasicBlock *CurrentFuncletEntry = nullptr;
 
@@ -48,7 +56,8 @@ class LLVM_LIBRARY_VISIBILITY WinException : public EHStreamer {
 
   void emitSEHActionsForRange(const WinEHFuncInfo &FuncInfo,
                               const MCSymbol *BeginLabel,
-                              const MCSymbol *EndLabel, int State);
+                              const MCSymbol *EndLabel, int State,
+                              const MCSymbol *Base);
 
   /// Emit the EH table data for 32-bit and 64-bit functions using
   /// the __CxxFrameHandler3 personality.
@@ -63,16 +72,17 @@ class LLVM_LIBRARY_VISIBILITY WinException : public EHStreamer {
 
   void computeIP2StateTable(
       const MachineFunction *MF, const WinEHFuncInfo &FuncInfo,
-      SmallVectorImpl<std::pair<const MCExpr *, int>> &IPToStateTable);
+      SmallVectorImpl<std::pair<const MCExpr *, int>> &IPToStateTable,
+      const MCSymbol *Base);
 
   /// Emits the label used with llvm.x86.seh.recoverfp, which is used by
   /// outlined funclets.
   void emitEHRegistrationOffsetLabel(const WinEHFuncInfo &FuncInfo,
                                      StringRef FLinkageName);
 
-  const MCExpr *create32bitRef(const MCSymbol *Value);
-  const MCExpr *create32bitRef(const GlobalValue *GV);
-  const MCExpr *getLabelPlusOne(const MCSymbol *Label);
+  const MCExpr *create32bitRef(const MCSymbol *Value, const MCSymbol *Base);
+  const MCExpr *create32bitRef(const GlobalValue *GV, const MCSymbol *Base);
+  const MCExpr *getLabelPlusOne(const MCSymbol *Label, const MCSymbol *Base);
   const MCExpr *getOffset(const MCSymbol *OffsetOf, const MCSymbol *OffsetFrom);
   const MCExpr *getOffsetPlusOne(const MCSymbol *OffsetOf,
                                  const MCSymbol *OffsetFrom);

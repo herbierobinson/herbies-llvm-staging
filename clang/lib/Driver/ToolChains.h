@@ -839,6 +839,34 @@ protected:
   Tool *buildLinker() const override;
 };
 
+class LLVM_LIBRARY_VISIBILITY VOSToolChain : public Generic_ELF {
+public:
+  VOSToolChain(const Driver &D, const llvm::Triple &Triple,
+         const llvm::opt::ArgList &Args);
+    
+  virtual bool IsMathErrnoDefault() const { return false; }
+  virtual bool IsObjCNonFragileABIDefault() const { return true; }
+    
+  virtual CXXStdlibType GetCXXStdlibType(const llvm::opt::ArgList &Args) const {
+    return ToolChain::CST_Libcxx;
+  }
+    
+  virtual void
+  AddClangCXXStdlibIncludeArgs(const llvm::opt::ArgList &DriverArgs,
+                               llvm::opt::ArgStringList &CC1Args) const;
+  virtual bool IsUnwindTablesDefault() const {
+    return true;
+  }
+  virtual bool isPICDefault() const {
+    return true;
+  }
+
+protected:
+  virtual Tool *buildLinker() const;
+};
+  
+
+
 class LLVM_LIBRARY_VISIBILITY Minix : public Generic_ELF {
 public:
   Minix(const Driver &D, const llvm::Triple &Triple,

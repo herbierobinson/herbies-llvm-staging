@@ -284,6 +284,14 @@ public:
   /// values or constant users.
   void replaceUsesOutsideBlock(Value *V, BasicBlock *BB);
 
+  /// replaceUsesExceptSome - Go through the uses list for this definition and
+  /// make each use point to "V" instead of "this" when the User is not one of
+  /// block. 'This's use list is expected to have at least one element.
+  /// Unlike replaceAllUsesWith this function does not support basic block
+  /// values or constant users.  Assume 'this' is not going to be
+  /// disposed of.
+  void replaceUsesExceptSome(Value *V, User* user1, User* user2=nullptr);
+  
   //----------------------------------------------------------------------
   // Methods for handling the chain of uses of this Value.
   //

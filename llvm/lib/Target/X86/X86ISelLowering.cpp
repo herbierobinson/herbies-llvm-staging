@@ -2826,10 +2826,8 @@ SDValue X86TargetLowering::LowerFormalArguments(
   SmallVector<CCValAssign, 16> ArgLocs;
   CCState CCInfo(CallConv, isVarArg, MF, ArgLocs, *DAG.getContext());
 
-  // Allocate shadow area for Win64.
-  if (IsWin64)
-    CCInfo.AllocateStack(32, 8);
-
+  x86ArgumentPreallocations(&Subtarget, IsWin64, Ins, CCInfo);
+                                            
   CCInfo.AnalyzeArguments(Ins, CC_X86);
 
   // In vectorcall calling convention a second pass is required for the HVA
@@ -2838,6 +2836,14 @@ SDValue X86TargetLowering::LowerFormalArguments(
     CCInfo.AnalyzeArgumentsSecondPass(Ins, CC_X86);
   }
 
+  // VOS i32 bit PIC requires that EDX be loaded by the caller and present
+  // upon entry.  Note that PICStyleGOT is 32 bit only.
+  // We'll copy EBX to the virtual GOTP register later in runOnMachineFunction
+  // in the machine funciton pass (if GOTP is needed).
+  if (Subtarget.isPICStyleGOT() && Subtarget.isTargetVos()) {
+    MF.getRegInfo().addLiveIn(X86::EDX);
+  }
+  
   // The next loop assumes that the locations are in the same order of the
   // input arguments.
   assert(isSortedByValueNo(ArgLocs) &&
@@ -2941,7 +2947,8 @@ SDValue X86TargetLowering::LowerFormalArguments(
   for (unsigned I = 0, E = Ins.size(); I != E; ++I) {
     // Swift calling convention does not require we copy the sret argument
     // into %rax/%eax for the return. We don't set SRetReturnReg for Swift.
-    if (CallConv == CallingConv::Swift)
+    // Or VOS.
+    if (CallConv == CallingConv::Swift  || Subtarget.isTargetVos())
       continue;
 
     // All x86 ABIs require that for returning structs by value we copy the
@@ -3203,6 +3210,74 @@ static SDValue EmitTailCallStoreRetAddr(SelectionDAG &DAG, MachineFunction &MF,
   return Chain;
 }
 
+SDValue
+X86TargetLowering::x8632VosFunctionPointerLoad(
+              TargetLowering::CallLoweringInfo &CLI,
+              SmallVector<std::pair<unsigned, SDValue>, 8> &RegsToPass,
+              SDValue Callee) const
+{
+  SelectionDAG &DAG                     = CLI.DAG;
+  SDLoc &dl                             = CLI.DL;
+  bool haveNest = false;
+  auto PtrVT = getPointerTy(DAG.getDataLayout());
+  const Value *nullValue = nullptr;
+  MachinePointerInfo mpi0 = MachinePointerInfo(nullValue, 0);
+  MachinePointerInfo mpi4 = MachinePointerInfo(nullValue, 4);
+  MachinePointerInfo mpi8 = MachinePointerInfo(nullValue, 8);
+  
+  for (unsigned i = 0, e = RegsToPass.size(); i != e; ++i) {
+    if (RegsToPass[i].first == X86::ECX)
+      haveNest = true;
+  }
+
+  // If the Nest parameter hasn't already been supplied,
+  // indirect from offset 0 and bswap.
+  if (!haveNest)
+  {
+    /*
+    EDIT:  Still need research the 2nd, 3rd, 5th and 7th parameters.
+     5th is definitely wrong here...
+     MemIndexedMode AM = ISD::UNINDEXED, PRE_INC, PRE_DEC, POST_INC, POST_DEC, LAST_INDEXED_MODE
+     LoadExtType ExtType = ISD::NON_EXTLOAD, EXTLOAD, SEXTLOAD, ZEXTLOAD, LAST_LOADEXT_TYPE
+     EVT VT -- Result type
+     SDLoc dl -- getIROrder, getDebugLoc -- same for entire call
+     SDValue Chain, operand[0] -- How for up this instr can be moved.
+     SDVAlue Ptr iinput expression (Callee), operand[1]
+     SDValue Offset = getUNDEF(Ptr.getValueType()) -- For auto inc/dec
+     MachinePointerInfo PtrInfo -- getAddrSpace = 0, base = nullptr, offset
+          not used in this case, operand[2]
+     EVT MemVT = VT -- Memory type (always same in this case)
+     bool isVolatile = false
+     bool isNonTemporal = false
+     bool isInvariant = false
+     unsigned Alignment = 4
+     AAInfo = AAMDNodes()
+     Ranges = nullptr
+     
+     Register allocation & freeing???
+     
+     For the next layer, the  PreInfo, isVolatile through Ranges args are combined into a MachineMemOperand.  The other args have same names.
+    */
+    // Others could be getIndexedLoad, not getLoad.
+    SDValue display = DAG.getLoad(PtrVT, dl, DAG.getEntryNode(), Callee,
+                       mpi0, 4);
+    display = DAG.getNode(ISD::BSWAP, dl, PtrVT, display);
+    RegsToPass.push_back(std::make_pair(unsigned(X86::ECX), display));
+  }
+
+  // Load the gotp from offset 8 and bswap.
+  SDValue gotp = DAG.getLoad(PtrVT, dl, DAG.getEntryNode(), Callee,
+                       mpi8, 4);
+  gotp = DAG.getNode(ISD::BSWAP, dl, PtrVT, gotp);
+  RegsToPass.push_back(std::make_pair(unsigned(X86::EDX), gotp));
+
+  // Load from offset 4 and bswap to get the code address.
+  Callee = DAG.getLoad(PtrVT, dl, DAG.getEntryNode(), Callee,
+                       mpi4, 4);
+  Callee = DAG.getNode(ISD::BSWAP, dl, PtrVT, Callee);
+  return Callee;
+}
+                       
 /// Returns a vector_shuffle mask for an movs{s|d}, movd
 /// operation of specified width.
 static SDValue getMOVL(SelectionDAG &DAG, const SDLoc &dl, MVT VT, SDValue V1,
@@ -3285,9 +3360,7 @@ X86TargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   SmallVector<CCValAssign, 16> ArgLocs;
   CCState CCInfo(CallConv, isVarArg, MF, ArgLocs, *DAG.getContext());
 
-  // Allocate shadow area for Win64.
-  if (IsWin64)
-    CCInfo.AllocateStack(32, 8);
+  x86ArgumentPreallocations(&Subtarget, IsWin64, Outs, CCInfo);
 
   CCInfo.AnalyzeArguments(Outs, CC_X86);
 
@@ -3446,7 +3519,30 @@ X86TargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
     // ELF / PIC requires GOT in the EBX register before function calls via PLT
     // GOT pointer.
     if (!isTailCall) {
-      RegsToPass.push_back(std::make_pair(
+      // VOS uses EDX for GOTP, not EBX, and always passes it.
+      // We default PIC for VOS; so, that covers always passing GOTP.
+      // We will allow turning off PIC for the kernel, but user mode code
+      // will almost cetainly break if PIC is turned off (because the
+      // libraries will be compiled PIC and require GOTP to be passed.
+      // Also, function pointers don't point to code, they point to
+      // a three pointer structure: {Nest, Code, GOTP}.  These pointers
+      // are always big endian.  We may drop passing GOTP for x86_64.
+      // EDIT: Work out DO TAIL CALL REG ALLOCATION after finishing this:
+      // It WILL be affected by VOS conventions.
+      if (Subtarget.isTargetVosIa32()) {
+        MemSDNode *M = dyn_cast<MemSDNode>(Callee);
+        if (M) {
+          Callee = x8632VosFunctionPointerLoad(CLI, RegsToPass, Callee);
+        }
+        else {
+          // This is a contant (internal or external symbol)
+          // We just need to add the load for GOTP.
+          RegsToPass.push_back(std::make_pair(unsigned(X86::EDX),
+                                              DAG.getNode(X86ISD::GlobalBaseReg, SDLoc(), getPointerTy(DAG.getDataLayout()))));
+        }
+      }
+      else
+        RegsToPass.push_back(std::make_pair(
           unsigned(X86::EBX), DAG.getNode(X86ISD::GlobalBaseReg, SDLoc(),
                                           getPointerTy(DAG.getDataLayout()))));
     } else {
@@ -3465,6 +3561,12 @@ X86TargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
         Callee = LowerGlobalAddress(Callee, DAG);
       else if (isa<ExternalSymbolSDNode>(Callee))
         Callee = LowerExternalSymbol(Callee, DAG);
+    }
+  } else if (Subtarget.isTargetVosIa32()) {
+    // VOS kernel code still has to do the function pointer indirect.
+    MemSDNode *M = dyn_cast<MemSDNode>(Callee);
+    if (M) {
+      Callee = x8632VosFunctionPointerLoad(CLI, RegsToPass, Callee);
     }
   }
 
@@ -3692,7 +3794,7 @@ X86TargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
     NumBytesForCalleeToPop = NumBytes;    // Callee pops everything
   else if (!Is64Bit && !canGuaranteeTCO(CallConv) &&
            !Subtarget.getTargetTriple().isOSMSVCRT() &&
-           SR == StackStructReturn)
+           SR == StackStructReturn && !Subtarget.isTargetVos())
     // If this is a call to a struct-return function, the callee
     // pops the hidden struct pointer, so we have to push it back.
     // This is common for Darwin/X86, Linux & Mingw32 targets.
@@ -3927,6 +4029,8 @@ bool X86TargetLowering::IsEligibleForTailCallOptimization(
     SmallVector<CCValAssign, 16> ArgLocs;
     CCState CCInfo(CalleeCC, isVarArg, MF, ArgLocs, C);
 
+    x86ArgumentPreallocations(&Subtarget, IsCalleeWin64, Outs, CCInfo);
+    
     CCInfo.AnalyzeCallOperands(Outs, CC_X86);
     for (unsigned i = 0, e = ArgLocs.size(); i != e; ++i)
       if (!ArgLocs[i].isRegLoc())
@@ -3977,9 +4081,7 @@ bool X86TargetLowering::IsEligibleForTailCallOptimization(
     SmallVector<CCValAssign, 16> ArgLocs;
     CCState CCInfo(CalleeCC, isVarArg, MF, ArgLocs, C);
 
-    // Allocate shadow area for Win64
-    if (IsCalleeWin64)
-      CCInfo.AllocateStack(32, 8);
+    x86ArgumentPreallocations(&Subtarget, IsCalleeWin64, Outs, CCInfo);
 
     CCInfo.AnalyzeCallOperands(Outs, CC_X86);
     StackArgsSize = CCInfo.getNextStackOffset();
@@ -4054,6 +4156,48 @@ bool X86TargetLowering::IsEligibleForTailCallOptimization(
   }
 
   return true;
+}
+
+static void
+Commonx86ArgumentPreallocations(const X86Subtarget *Subtarget,
+                          bool IsCalleeWin64, CCState &CCInfo)
+{
+  // Allocate shadow area for Win64
+  if (IsCalleeWin64)
+    CCInfo.AllocateStack(32, 8);
+  
+  // VOS i32 bit PIC requires that EDX be loaded by the caller and present
+  // upon entry.  Allocate EDX before laying out the arguments; so, nothing else
+  // uses it.  PCIStyleGOT is 32 bit only.
+  if (Subtarget->isPICStyleGOT() && Subtarget->isTargetVosIa32())
+    CCInfo.AllocateReg(X86::EDX);
+}
+
+extern void
+llvm::x86ArgumentPreallocations(const X86Subtarget *Subtarget,
+                          bool IsCalleeWin64,
+                          const SmallVectorImpl<ISD::InputArg> &Ins,
+                          CCState &CCInfo)
+{
+  Commonx86ArgumentPreallocations(Subtarget, IsCalleeWin64, CCInfo);
+}
+
+extern void
+llvm::x86ArgumentPreallocations(const X86Subtarget *Subtarget,
+                          bool IsCalleeWin64,
+                          const SmallVectorImpl<ISD::OutputArg> &Outs,
+                          CCState &CCInfo)
+{
+  Commonx86ArgumentPreallocations(Subtarget, IsCalleeWin64, CCInfo);
+}
+
+extern void
+llvm::x86ArgumentPreallocations(const X86Subtarget *Subtarget,
+                                bool IsCalleeWin64,
+                                SmallVector<ISD::ArgFlagsTy, 16> &OutFlags,
+                                CCState &CCInfo)
+{
+  Commonx86ArgumentPreallocations(Subtarget, IsCalleeWin64, CCInfo);
 }
 
 FastISel *
@@ -25551,12 +25695,15 @@ X86TargetLowering::emitEHSjLjSetJmp(MachineInstr &MI,
     const bool Uses64BitFramePtr =
         Subtarget.isTarget64BitLP64() || Subtarget.isTargetNaCl64();
     X86MachineFunctionInfo *X86FI = MF->getInfo<X86MachineFunctionInfo>();
-    X86FI->setRestoreBasePointer(MF);
+    X86FI->setSpecialFrameSlotPresent(MF,
+                                      X86MachineFunctionInfo::RestoreBasePointer);
     unsigned FramePtr = RegInfo->getFrameRegister(*MF);
     unsigned BasePtr = RegInfo->getBaseRegister();
     unsigned Opm = Uses64BitFramePtr ? X86::MOV64rm : X86::MOV32rm;
     addRegOffset(BuildMI(restoreMBB, DL, TII->get(Opm), BasePtr),
-                 FramePtr, true, X86FI->getRestoreBasePointerOffset())
+                 FramePtr, true,
+                 X86FI->getSpecialFrameSlotOffset(
+                            X86MachineFunctionInfo::RestoreBasePointer))
       .setMIFlag(MachineInstr::FrameSetup);
   }
   BuildMI(restoreMBB, DL, TII->get(X86::MOV32ri), restoreDstReg).addImm(1);
@@ -25769,13 +25916,14 @@ X86TargetLowering::EmitSjLjDispatchBlock(MachineInstr &MI,
     const bool FPIs64Bit =
         Subtarget.isTarget64BitLP64() || Subtarget.isTargetNaCl64();
     X86MachineFunctionInfo *MFI = MF->getInfo<X86MachineFunctionInfo>();
-    MFI->setRestoreBasePointer(MF);
+    MFI->setSpecialFrameSlotPresent(MF, X86MachineFunctionInfo::RestoreBasePointer);
 
     unsigned FP = RI.getFrameRegister(*MF);
     unsigned BP = RI.getBaseRegister();
     unsigned Op = FPIs64Bit ? X86::MOV64rm : X86::MOV32rm;
     addRegOffset(BuildMI(DispatchBB, DL, TII->get(Op), BP), FP, true,
-                 MFI->getRestoreBasePointerOffset())
+                 MFI->getSpecialFrameSlotOffset(
+                          X86MachineFunctionInfo::RestoreBasePointer))
         .addRegMask(RI.getNoPreservedMask());
   } else {
     BuildMI(DispatchBB, DL, TII->get(X86::NOOP))

@@ -23,6 +23,8 @@ using namespace llvm;
 void llvm::initializeTransformUtils(PassRegistry &Registry) {
   initializeAddDiscriminatorsLegacyPassPass(Registry);
   initializeBreakCriticalEdgesPass(Registry);
+  initializeBigEndianEmulationPass(Registry);
+  initializeLittleEndianEmulationPass(Registry);
   initializeInstNamerPass(Registry);
   initializeLCSSAWrapperPassPass(Registry);
   initializeLibCallsShrinkWrapLegacyPassPass(Registry);

@@ -14,14 +14,17 @@
 
 using namespace llvm;
 
-MCELFObjectTargetWriter::MCELFObjectTargetWriter(bool Is64Bit_,
-                                                 uint8_t OSABI_,
-                                                 uint16_t EMachine_,
-                                                 bool HasRelocationAddend_,
-                                                 bool IsN64_)
+MCELFObjectTargetWriter::MCELFObjectTargetWriter(
+                              bool Is64Bit_,
+                              uint8_t OSABI_,
+                              uint16_t EMachine_,
+                              bool HasRelocationAddend_,
+                              bool IsN64_,
+                              bool ByteSwapedRelocationsSupported)
   : OSABI(OSABI_), EMachine(EMachine_),
     HasRelocationAddend(HasRelocationAddend_), Is64Bit(Is64Bit_),
-    IsN64(IsN64_){
+    IsN64(IsN64_),
+    ByteSwapedRelocationsSupported(ByteSwapedRelocationsSupported) {
 }
 
 bool MCELFObjectTargetWriter::needsRelocateWithSymbol(const MCSymbol &Sym,

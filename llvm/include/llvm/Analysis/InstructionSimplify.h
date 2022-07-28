@@ -246,6 +246,13 @@ namespace llvm {
                           AssumptionCache *AC = nullptr,
                           const Instruction *CxtI = nullptr);
 
+  ///Given operands for a ShuffleVectorInst, fold the result or return null.
+  Value *SimplifyShuffleVectorInst(Value *Op1, Value *Op2, Value *Mask,
+                                         const DataLayout &DL,
+                                         const TargetLibraryInfo *TLI,
+                                         const DominatorTree *DT, AssumptionCache *AC,
+                                   const Instruction *CxtI);
+  
   //=== Helper functions for higher up the class hierarchy.
 
 

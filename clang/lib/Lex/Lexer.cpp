@@ -3220,7 +3220,7 @@ LexNextToken:
 
   case '$':   // $ in identifiers.
     if (LangOpts.DollarIdents) {
-      if (!isLexingRawMode())
+      if (!isLexingRawMode() && !LangOpts.DollarIdentsPervasive)
         Diag(CurPtr-1, diag::ext_dollar_in_identifier);
       // Notify MIOpt that we read a non-whitespace/non-comment token.
       MIOpt.ReadToken();

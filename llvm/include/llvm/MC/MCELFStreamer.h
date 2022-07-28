@@ -15,6 +15,7 @@
 #include "llvm/MC/MCObjectStreamer.h"
 #include "llvm/MC/SectionKind.h"
 #include "llvm/Support/DataTypes.h"
+#include "llvm/MC/MCVosEH.h"
 
 namespace llvm {
 class MCAsmBackend;
@@ -25,6 +26,7 @@ class MCInst;
 class raw_ostream;
 
 class MCELFStreamer : public MCObjectStreamer {
+  VosEHUnwindEmitter EHStreamer;
 public:
   MCELFStreamer(MCContext &Context, MCAsmBackend &TAB, raw_pwrite_stream &OS,
                 MCCodeEmitter *Emitter)
@@ -44,6 +46,8 @@ public:
 
   void InitSections(bool NoExecStack) override;
   void ChangeSection(MCSection *Section, const MCExpr *Subsection) override;
+  virtual SEHUnwindEmitter *getSEHUnwindEmitter() override;
+  
   void EmitLabel(MCSymbol *Symbol) override;
   void EmitAssemblerFlag(MCAssemblerFlag Flag) override;
   void EmitThumbFunc(MCSymbol *Func) override;
@@ -68,6 +72,8 @@ public:
                       unsigned ByteAlignment = 0) override;
   void EmitValueImpl(const MCExpr *Value, unsigned Size,
                      SMLoc Loc = SMLoc()) override;
+  void EmitValueSwappedImpl(const MCExpr *Value, unsigned Size,
+                     SMLoc Loc) override;
 
   void EmitFileDirective(StringRef Filename) override;
 
@@ -75,6 +81,7 @@ public:
 
   void EmitValueToAlignment(unsigned, int64_t, unsigned, unsigned) override;
 
+  void EmitWindowsUnwindTables() override;
   void FinishImpl() override;
 
   void EmitBundleAlignMode(unsigned AlignPow2) override;

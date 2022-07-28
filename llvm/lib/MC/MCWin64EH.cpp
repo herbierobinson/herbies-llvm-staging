@@ -19,6 +19,9 @@
 
 using namespace llvm;
 
+Win64EH::UnwindEmitter::~UnwindEmitter() {}
+
+
 // NOTE: All relocations generated here are 4-byte image-relative.
 
 static uint8_t CountOfUnwindCodes(std::vector<WinEH::Instruction> &Insns) {
@@ -41,6 +44,12 @@ static uint8_t CountOfUnwindCodes(std::vector<WinEH::Instruction> &Insns) {
       break;
     case Win64EH::UOP_AllocLarge:
       Count += (I.Offset > 512 * 1024 - 8) ? 3 : 2;
+      break;
+    case Win64EH::UOP_SaveBasePtr:
+      break;
+    case Win64EH::UOP_BeginEpilog:
+      break;
+    case Win64EH::UOP_EndEpilog:
       break;
     }
   }
@@ -119,6 +128,12 @@ static void EmitUnwindCode(MCStreamer &streamer, const MCSymbol *begin,
     EmitAbsDifference(streamer, inst.Label, begin);
     streamer.EmitIntValue(b2, 1);
     break;
+  case Win64EH::UOP_SaveBasePtr:
+    break;
+  case Win64EH::UOP_BeginEpilog:
+    break;
+  case Win64EH::UOP_EndEpilog:
+      break;
   }
 }
 
@@ -136,7 +151,7 @@ static void EmitSymbolRefWithOfs(MCStreamer &streamer,
 }
 
 static void EmitRuntimeFunction(MCStreamer &streamer,
-                                const WinEH::FrameInfo *info) {
+                                const SEHFrameInfo *info) {
   MCContext &context = streamer.getContext();
 
   streamer.EmitValueToAlignment(4);
@@ -218,29 +233,30 @@ static void EmitUnwindInfo(MCStreamer &streamer, WinEH::FrameInfo *info) {
   }
 }
 
-void llvm::Win64EH::UnwindEmitter::Emit(MCStreamer &Streamer) const {
+void llvm::Win64EH::UnwindEmitter::Emit(MCStreamer &Streamer) {
   // Emit the unwind info structs first.
-  for (WinEH::FrameInfo *CFI : Streamer.getWinFrameInfos()) {
+  for (SEHFrameInfo *CFII : Streamer.getWinFrameInfos()) {
+    WinEH::FrameInfo *CFI = (WinEH::FrameInfo *) CFII;
     MCSection *XData = Streamer.getAssociatedXDataSection(CFI->TextSection);
     Streamer.SwitchSection(XData);
     ::EmitUnwindInfo(Streamer, CFI);
   }
 
   // Now emit RUNTIME_FUNCTION entries.
-  for (WinEH::FrameInfo *CFI : Streamer.getWinFrameInfos()) {
+  for (SEHFrameInfo *CFII : Streamer.getWinFrameInfos()) {
+    WinEH::FrameInfo *CFI = (WinEH::FrameInfo *) CFII;
     MCSection *PData = Streamer.getAssociatedPDataSection(CFI->TextSection);
     Streamer.SwitchSection(PData);
     EmitRuntimeFunction(Streamer, CFI);
   }
 }
 
-void llvm::Win64EH::UnwindEmitter::EmitUnwindInfo(
-    MCStreamer &Streamer, WinEH::FrameInfo *info) const {
+void llvm::WinEH::FrameInfo::EmitUnwindInfo() {
   // Switch sections (the static function above is meant to be called from
   // here and from Emit().
-  MCSection *XData = Streamer.getAssociatedXDataSection(info->TextSection);
+  MCSection *XData = Streamer.getAssociatedXDataSection(TextSection);
   Streamer.SwitchSection(XData);
 
-  ::EmitUnwindInfo(Streamer, info);
+  ::EmitUnwindInfo(Streamer, this);
 }
 

@@ -239,6 +239,7 @@ void ScalarEnumerationTraits<ELFYAML::ELF_ELFOSABI>::enumeration(
   ECase(ELFOSABI_AROS);
   ECase(ELFOSABI_FENIXOS);
   ECase(ELFOSABI_CLOUDABI);
+  ECase(ELFOSABI_OPENVOS);
   ECase(ELFOSABI_C6000_ELFABI);
   ECase(ELFOSABI_AMDGPU_HSA);
   ECase(ELFOSABI_C6000_LINUX);
@@ -522,6 +523,11 @@ void ScalarEnumerationTraits<ELFYAML::ELF_REL>::enumeration(
 #include "llvm/Support/ELFRelocs/Hexagon.def"
     break;
   case ELF::EM_386:
+    if (Object->Header.OSABI == (ELFYAML::ELF_ELFOSABI) ELF::ELFOSABI_OPENVOS)
+    {
+#include "llvm/Support/ELFRelocs/i386_vos.def"
+    }
+    // Drop through...
   case ELF::EM_IAMCU:
 #include "llvm/Support/ELFRelocs/i386.def"
     break;

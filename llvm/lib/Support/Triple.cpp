@@ -158,6 +158,7 @@ StringRef Triple::getVendorTypeName(VendorType Kind) {
   case MipsTechnologies: return "mti";
   case NVIDIA: return "nvidia";
   case CSR: return "csr";
+  case Stratus: return "stratus";
   case Myriad: return "myriad";
   case AMD: return "amd";
   case Mesa: return "mesa";
@@ -195,6 +196,7 @@ StringRef Triple::getOSTypeName(OSType Kind) {
   case NVCL: return "nvcl";
   case AMDHSA: return "amdhsa";
   case PS4: return "ps4";
+  case VOS: return "vos";
   case ELFIAMCU: return "elfiamcu";
   case TvOS: return "tvos";
   case WatchOS: return "watchos";
@@ -440,6 +442,7 @@ static Triple::VendorType parseVendor(StringRef VendorName) {
     .Case("mti", Triple::MipsTechnologies)
     .Case("nvidia", Triple::NVIDIA)
     .Case("csr", Triple::CSR)
+    .Case("stratus", Triple::Stratus)
     .Case("myriad", Triple::Myriad)
     .Case("amd", Triple::AMD)
     .Case("mesa", Triple::Mesa)
@@ -474,6 +477,7 @@ static Triple::OSType parseOS(StringRef OSName) {
     .StartsWith("nvcl", Triple::NVCL)
     .StartsWith("amdhsa", Triple::AMDHSA)
     .StartsWith("ps4", Triple::PS4)
+    .StartsWith("vos", Triple::VOS)
     .StartsWith("elfiamcu", Triple::ELFIAMCU)
     .StartsWith("tvos", Triple::TvOS)
     .StartsWith("watchos", Triple::WatchOS)

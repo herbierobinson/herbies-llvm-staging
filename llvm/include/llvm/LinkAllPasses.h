@@ -100,6 +100,8 @@ namespace {
       (void) llvm::createFunctionImportPass();
       (void) llvm::createFunctionInliningPass();
       (void) llvm::createAlwaysInlinerLegacyPass();
+      (void) llvm::createBigEndianEmulationPass();
+      (void) llvm::createLittleEndianEmulationPass();
       (void) llvm::createGlobalDCEPass();
       (void) llvm::createGlobalOptimizerPass();
       (void) llvm::createGlobalsAAWrapperPass();

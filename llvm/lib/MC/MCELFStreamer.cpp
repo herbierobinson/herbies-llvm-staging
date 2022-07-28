@@ -95,6 +95,11 @@ void MCELFStreamer::InitSections(bool NoExecStack) {
     SwitchSection(Ctx.getAsmInfo()->getNonexecutableStackSection(Ctx));
 }
 
+SEHUnwindEmitter *MCELFStreamer::getSEHUnwindEmitter()
+{
+  return &EHStreamer;
+}
+
 void MCELFStreamer::EmitLabel(MCSymbol *S) {
   auto *Symbol = cast<MCSymbolELF>(S);
   assert(Symbol->isUndefined() && "Cannot define a symbol twice!");
@@ -335,6 +340,14 @@ void MCELFStreamer::EmitLocalCommonSymbol(MCSymbol *S, uint64_t Size,
 }
 
 void MCELFStreamer::EmitValueImpl(const MCExpr *Value, unsigned Size,
+                                  SMLoc Loc) {
+  if (isBundleLocked())
+    report_fatal_error("Emitting values inside a locked bundle is forbidden");
+  fixSymbolsInTLSFixups(Value);
+  MCObjectStreamer::EmitValueImpl(Value, Size, Loc);
+}
+
+void MCELFStreamer::EmitValueSwappedImpl(const MCExpr *Value, unsigned Size,
                                   SMLoc Loc) {
   if (isBundleLocked())
     report_fatal_error("Emitting values inside a locked bundle is forbidden");
@@ -611,12 +624,20 @@ void MCELFStreamer::EmitBundleUnlock() {
     Sec.setBundleLockState(MCSection::NotBundleLocked);
 }
 
+void MCELFStreamer::EmitWindowsUnwindTables() {
+  if (!getNumWinFrameInfos())
+    return;
+  EHStreamer.Emit(*this);
+}
+
 void MCELFStreamer::FinishImpl() {
   // Ensure the last section gets aligned if necessary.
   MCSection *CurSection = getCurrentSectionOnly();
   setSectionAlignmentForBundling(getAssembler(), CurSection);
 
   EmitFrames(nullptr);
+
+  EmitWindowsUnwindTables();
 
   this->MCObjectStreamer::FinishImpl();
 }

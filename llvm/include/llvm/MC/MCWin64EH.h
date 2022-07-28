@@ -24,8 +24,8 @@ class MCSymbol;
 
 namespace Win64EH {
 struct Instruction {
-  static WinEH::Instruction PushNonVol(MCSymbol *L, unsigned Reg) {
-    return WinEH::Instruction(Win64EH::UOP_PushNonVol, L, Reg, -1);
+  static WinEH::Instruction PushNonVol(MCSymbol *L, unsigned Reg, bool isFrameptr) {
+    return WinEH::Instruction(Win64EH::UOP_PushNonVol, L, Reg, isFrameptr);
   }
   static WinEH::Instruction Alloc(MCSymbol *L, unsigned Size) {
     return WinEH::Instruction(Size > 128 ? UOP_AllocLarge : UOP_AllocSmall, L,
@@ -49,12 +49,23 @@ struct Instruction {
   static WinEH::Instruction SetFPReg(MCSymbol *L, unsigned Reg, unsigned Off) {
     return WinEH::Instruction(UOP_SetFPReg, L, Reg, Off);
   }
+  static WinEH::Instruction SaveBasePtr(MCSymbol *L, unsigned Reg,
+                                    unsigned Offset) {
+    return WinEH::Instruction(UOP_SaveBasePtr,
+                              L, Reg, Offset);
+  }
+  static WinEH::Instruction BeginEpilog(MCSymbol *L) {
+    return WinEH::Instruction(UOP_BeginEpilog, L, -1, -1);
+  }
+  static WinEH::Instruction EndEpilog(MCSymbol *L) {
+    return WinEH::Instruction(UOP_EndEpilog, L, -1, -1);
+  }
 };
 
 class UnwindEmitter : public WinEH::UnwindEmitter {
 public:
-  void Emit(MCStreamer &Streamer) const override;
-  void EmitUnwindInfo(MCStreamer &Streamer, WinEH::FrameInfo *FI) const override;
+  virtual ~UnwindEmitter();
+  virtual void Emit(MCStreamer &Streamer) override;
 };
 }
 } // end namespace llvm

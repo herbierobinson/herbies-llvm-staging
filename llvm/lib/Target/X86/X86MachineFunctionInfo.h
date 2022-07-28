@@ -23,6 +23,27 @@ namespace llvm {
 /// X86MachineFunctionInfo - This class is derived from MachineFunction and
 /// contains private X86 target-specific information for each MachineFunction.
 class X86MachineFunctionInfo : public MachineFunctionInfo {
+
+public:
+  /// Housekeeping for special frame slots.  These come between the saved
+  /// registers and the data allocated for the program.
+  typedef enum SpecialFrameSlotType
+  {
+    /// RestoreBasePointerOffset - Non-zero if the function has base pointer
+    /// and makes call to llvm.eh.sjlj.setjmp. When non-zero, the value is a
+    /// displacement from the frame pointer to a slot where the base pointer
+    /// is stashed.
+    RestoreBasePointer = 0,
+    
+    /// A GOT style PIC implementation may need to save the GOTP to pass
+    /// to exception handling personality routines if the personality routine
+    /// in turn needs the GOTP to invoke funclets.
+    ExceptionHandlerGOTP,
+    
+    NumSpecialFrameSlotTypes
+  } SpecialFrameSlotType;
+  
+private:
   virtual void anchor();
 
   /// ForceFramePointer - True if the function is required to use of frame
@@ -31,11 +52,15 @@ class X86MachineFunctionInfo : public MachineFunctionInfo {
   /// contains stack pointer re-alignment code which requires FP.
   bool ForceFramePointer = false;
 
-  /// RestoreBasePointerOffset - Non-zero if the function has base pointer
-  /// and makes call to llvm.eh.sjlj.setjmp. When non-zero, the value is a
-  /// displacement from the frame pointer to a slot where the base pointer
-  /// is stashed.
-  signed char RestoreBasePointerOffset = 0;
+  /// The following indicates whether the special frame slot is present.
+  bool SpecialFrameSlotPresent[NumSpecialFrameSlotTypes] = {false};
+  
+  /// The value stored is the offset from the frame pointer
+  /// (even if the frame pointer isn't materialized).
+  /// This will be negative for x86.
+  signed char SpecialFrameSlotOffset[NumSpecialFrameSlotTypes] = {0};
+  signed char SpecialFrameSlotAllocator = 0;
+  signed char LastSavedRegSlot = 0;
 
   /// CalleeSavedFrameSize - Size of the callee-saved register portion of the
   /// stack frame in bytes.
@@ -117,9 +142,13 @@ public:
   bool getHasPushSequences() const { return HasPushSequences; }
   void setHasPushSequences(bool HasPush) { HasPushSequences = HasPush; }
 
-  bool getRestoreBasePointer() const { return RestoreBasePointerOffset!=0; }
-  void setRestoreBasePointer(const MachineFunction *MF);
-  int getRestoreBasePointerOffset() const {return RestoreBasePointerOffset; }
+  bool getSpecialFrameSlotPresent(SpecialFrameSlotType t)
+  { return SpecialFrameSlotPresent[t]; }
+  void setSpecialFrameSlotPresent(const MachineFunction *MF,
+                                  SpecialFrameSlotType t);
+  int getSpecialFrameSlotOffset(SpecialFrameSlotType t)
+  { return SpecialFrameSlotOffset[t]; }
+  void updateFrameSizeForSpecialSlots(uint64_t &FrameSize) const;
 
   unsigned getCalleeSavedFrameSize() const { return CalleeSavedFrameSize; }
   void setCalleeSavedFrameSize(unsigned bytes) { CalleeSavedFrameSize = bytes; }

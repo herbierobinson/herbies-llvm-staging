@@ -1004,7 +1004,7 @@ void X86FrameLowering::emitPrologue(MachineFunction &MF,
   uint64_t NumBytes = 0;
   int stackGrowth = -SlotSize;
 
-  // Find the funclet establisher parameter
+  // Find the funclet establisher parametervos
   unsigned Establisher = X86::NoRegister;
   if (IsClrFunclet)
     Establisher = Uses64BitFramePtr ? X86::RCX : X86::ECX;
@@ -1025,9 +1025,9 @@ void X86FrameLowering::emitPrologue(MachineFunction &MF,
   if (HasFP) {
     // Calculate required stack adjustment.
     uint64_t FrameSize = StackSize - SlotSize;
-    // If required, include space for extra hidden slot for stashing base pointer.
-    if (X86FI->getRestoreBasePointer())
-      FrameSize += SlotSize;
+    // If required, include space for extra hidden slot for stashing base pointer
+    // and other special frame slots.
+    X86FI->updateFrameSizeForSpecialSlots(FrameSize);
 
     NumBytes = FrameSize - X86FI->getCalleeSavedFrameSize();
 
@@ -1065,7 +1065,7 @@ void X86FrameLowering::emitPrologue(MachineFunction &MF,
     if (NeedsWinCFI) {
       HasWinCFI = true;
       BuildMI(MBB, MBBI, DL, TII.get(X86::SEH_PushReg))
-          .addImm(FramePtr)
+          .addImm(FramePtr).addImm(1)
           .setMIFlag(MachineInstr::FrameSetup);
     }
 
@@ -1126,8 +1126,9 @@ void X86FrameLowering::emitPrologue(MachineFunction &MF,
 
     if (NeedsWinCFI) {
       HasWinCFI = true;
-      BuildMI(MBB, MBBI, DL, TII.get(X86::SEH_PushReg)).addImm(Reg).setMIFlag(
-          MachineInstr::FrameSetup);
+      BuildMI(MBB, MBBI, DL, TII.get(X86::SEH_PushReg))
+          .addImm(Reg).addImm(0)
+          .setMIFlag(MachineInstr::FrameSetup);
     }
   }
 
@@ -1310,7 +1311,7 @@ void X86FrameLowering::emitPrologue(MachineFunction &MF,
     }
   }
 
-  if (NeedsWinCFI && HasWinCFI)
+  if (NeedsWinCFI && HasWinCFI && !STI.isTargetVos())
     BuildMI(MBB, MBBI, DL, TII.get(X86::SEH_EndPrologue))
         .setMIFlag(MachineInstr::FrameSetup);
 
@@ -1332,7 +1333,7 @@ void X86FrameLowering::emitPrologue(MachineFunction &MF,
   // Realign stack after we spilled callee-saved registers (so that we'll be
   // able to calculate their offsets from the frame pointer).
   // Win64 requires aligning the stack after the prologue.
-  if (IsWin64Prologue && TRI->needsStackRealignment(MF)) {
+  if (IsWin64Prologue && TRI->needsStackRealignment(MF) && !STI.isTargetVos()) {
     assert(HasFP && "There should be a frame pointer if stack is realigned.");
     BuildStackAlignAND(MBB, MBBI, DL, SPOrEstablisher, MaxAlign);
   }
@@ -1351,13 +1352,23 @@ void X86FrameLowering::emitPrologue(MachineFunction &MF,
     BuildMI(MBB, MBBI, DL, TII.get(Opc), BasePtr)
       .addReg(SPOrEstablisher)
       .setMIFlag(MachineInstr::FrameSetup);
-    if (X86FI->getRestoreBasePointer()) {
+    if (X86FI->getSpecialFrameSlotPresent(
+                        X86MachineFunctionInfo::RestoreBasePointer)) {
       // Stash value of base pointer.  Saving RSP instead of EBP shortens
       // dependence chain. Used by SjLj EH.
       unsigned Opm = Uses64BitFramePtr ? X86::MOV64mr : X86::MOV32mr;
       addRegOffset(BuildMI(MBB, MBBI, DL, TII.get(Opm)),
-                   FramePtr, true, X86FI->getRestoreBasePointerOffset())
+                   FramePtr, true, X86FI->getSpecialFrameSlotOffset(
+                                      X86MachineFunctionInfo::RestoreBasePointer))
         .addReg(SPOrEstablisher)
+        .setMIFlag(MachineInstr::FrameSetup);
+
+      if (NeedsWinCFI && STI.isTargetVos())
+        BuildMI(MBB, MBBI, DL, TII.get(X86::SEH_SaveBasePtr))
+        .addImm(SPOrEstablisher)
+        .addImm(X86FI->getSpecialFrameSlotOffset(
+                            X86MachineFunctionInfo::RestoreBasePointer))
+        .addImm(MFI.getMaxCallFrameSize())
         .setMIFlag(MachineInstr::FrameSetup);
     }
 
@@ -1377,6 +1388,28 @@ void X86FrameLowering::emitPrologue(MachineFunction &MF,
     }
   }
 
+  if (NeedsWinCFI && STI.isTargetVos()) {
+    if (X86FI->getSpecialFrameSlotPresent(X86MachineFunctionInfo::ExceptionHandlerGOTP)) {
+      // Save GOTP for exception handling.
+      unsigned Opm = Uses64BitFramePtr ? X86::MOV64mr : X86::MOV32mr;
+      addRegOffset(BuildMI(MBB, MBBI, DL, TII.get(Opm)),
+                   X86::EDX, true, X86FI->getSpecialFrameSlotOffset(
+                                              X86MachineFunctionInfo::ExceptionHandlerGOTP))
+            .addReg(SPOrEstablisher)
+            .setMIFlag(MachineInstr::FrameSetup);
+    }
+    BuildMI(MBB, MBBI, DL, TII.get(X86::SEH_EndPrologue))
+          .setMIFlag(MachineInstr::FrameSetup);
+  }
+  
+  // Realign stack after we spilled callee-saved registers (so that we'll be
+  // able to calculate their offsets from the frame pointer).
+  // Win64 requires aligning the stack after the prologue.
+  if (IsWin64Prologue && TRI->needsStackRealignment(MF) && STI.isTargetVos()) {
+    assert(HasFP && "There should be a frame pointer if stack is realigned.");
+    BuildStackAlignAND(MBB, MBBI, DL, SPOrEstablisher, MaxAlign);
+  }
+  
   if (((!HasFP && NumBytes) || PushedRegs) && NeedsDwarfCFI) {
     // Mark end of stack pointer adjustment.
     if (!HasFP && NumBytes) {
@@ -1643,7 +1676,8 @@ void X86FrameLowering::emitEpilogue(MachineFunction &MF,
   // then replace it with a 'nop' if it ends up immediately after a CALL in the
   // final emitted code.
   if (NeedsWinCFI && MF.hasWinCFI())
-    BuildMI(MBB, MBBI, DL, TII.get(X86::SEH_Epilogue));
+    BuildMI(MBB, MBBI, DL, TII.get(
+              STI.isTargetVos()? X86::SEH_BeginEpilogue : X86::SEH_Epilogue));
 
   if (!RetOpcode || !isTailCallOpcode(*RetOpcode)) {
     // Add the return addr area delta back since we are not tail calling.
@@ -1656,6 +1690,10 @@ void X86FrameLowering::emitEpilogue(MachineFunction &MF,
       Offset += mergeSPUpdates(MBB, MBBI, true);
       emitSPUpdate(MBB, MBBI, Offset, /*InEpilogue=*/true);
     }
+  }
+
+  if (NeedsWinCFI && STI.isTargetVos()) {
+    BuildMI(MBB, MBB.end(), DL, TII.get(X86::SEH_EndEpilogue));
   }
 }
 
@@ -1694,9 +1732,9 @@ int X86FrameLowering::getFrameIndexReference(const MachineFunction &MF, int FI,
 
     // Calculate required stack adjustment.
     uint64_t FrameSize = StackSize - SlotSize;
-    // If required, include space for extra hidden slot for stashing base pointer.
-    if (X86FI->getRestoreBasePointer())
-      FrameSize += SlotSize;
+    // If required, include space for extra hidden slot for stashing base pointer
+    // and other special frame slots.
+    X86FI->updateFrameSizeForSpecialSlots(FrameSize);
     uint64_t NumBytes = FrameSize - CSSize;
 
     uint64_t SEHFrameOffset = calculateSetFPREG(NumBytes);
@@ -2735,7 +2773,8 @@ bool X86FrameLowering::enableShrinkWrapping(const MachineFunction &MF) const {
 MachineBasicBlock::iterator X86FrameLowering::restoreWin32EHStackPointers(
     MachineBasicBlock &MBB, MachineBasicBlock::iterator MBBI,
     const DebugLoc &DL, bool RestoreSP) const {
-  assert(STI.isTargetWindowsMSVC() && "funclets only supported in MSVC env");
+  assert((STI.isTargetWindowsMSVC() || STI.isTargetVos())
+         && "funclets only supported in MSVC env");
   assert(STI.isTargetWin32() && "EBP/ESI restoration only required on win32");
   assert(STI.is32Bit() && !Uses64BitFramePtr &&
          "restoring EBP/ESI on non-32-bit target");

@@ -216,7 +216,7 @@ let isBranch = 1, isTerminator = 1, isCodeGenOnly = 1 in {
 // Pseudo instructions used by unwind info.
 //
 let isPseudo = 1 in {
-  def SEH_PushReg : I<0, Pseudo, (outs), (ins i32imm:$reg),
+  def SEH_PushReg : I<0, Pseudo, (outs), (ins i32imm:$reg, i32imm:$isFrameptr),
                             "#SEH_PushReg $reg", []>;
   def SEH_SaveReg : I<0, Pseudo, (outs), (ins i32imm:$reg, i32imm:$dst),
                             "#SEH_SaveReg $reg, $dst", []>;
@@ -230,8 +230,17 @@ let isPseudo = 1 in {
                             "#SEH_PushFrame $mode", []>;
   def SEH_EndPrologue : I<0, Pseudo, (outs), (ins),
                             "#SEH_EndPrologue", []>;
+  def SEH_GotSaveOffset : I<0, Pseudo, (outs), (ins i32imm:$offset),
+                            "#SEH_GotSaveOffset $offset", []>;
   def SEH_Epilogue : I<0, Pseudo, (outs), (ins),
                             "#SEH_Epilogue", []>;
+  def SEH_SaveBasePtr : I<0, Pseudo, (outs), (ins i32imm:$reg, i32imm:$off,
+                            i32imm:$fe),
+                            "#SEH_SaveBasePtr $reg, $off, $fe", []>;
+  def SEH_BeginEpilogue : I<0, Pseudo, (outs), (ins),
+                            "#SEH_BeginEpilogue", []>;
+  def SEH_EndEpilogue : I<0, Pseudo, (outs), (ins),
+                            "#SEH_EndEpilogue", []>;
 }
 
 //===----------------------------------------------------------------------===//

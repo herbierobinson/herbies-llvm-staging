@@ -18,8 +18,8 @@ class MCSymbolELF : public MCSymbol {
   const MCExpr *SymbolSize = nullptr;
 
 public:
-  MCSymbolELF(const StringMapEntry<bool> *Name, bool isTemporary)
-      : MCSymbol(SymbolKindELF, Name, isTemporary) {}
+  MCSymbolELF(const StringMapEntry<bool> *Name, bool isTemporary, bool IsFunction = false)
+      : MCSymbol(SymbolKindELF, Name, isTemporary, IsFunction) {}
   void setSize(const MCExpr *SS) { SymbolSize = SS; }
 
   const MCExpr *getSize() const { return SymbolSize; }

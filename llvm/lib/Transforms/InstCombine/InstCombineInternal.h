@@ -656,6 +656,14 @@ private:
   ///
   /// If the multiplication is known not to overflow then NoSignedWrap is set.
   Value *Descale(Value *Val, APInt Scale, bool &NoSignedWrap);
+      
+  // The following are used by the logical operations (and, or, xor) and
+  // the integer compare operation to reduce the number of bswaps.
+  Instruction *CombineLogicalBswaps(unsigned Opcode, Instruction &I);
+  Value *BswapToShift(Value *Arg, Value *BSwap, Value *InArg,
+                      int ShiftCount);
+  bool ArgHasBswap(Value *Arg, Value *&BSwap, Value *&InArg,
+                   int &ShiftCount);
 };
 
 } // end namespace llvm.

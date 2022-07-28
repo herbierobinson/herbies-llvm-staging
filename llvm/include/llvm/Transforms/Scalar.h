@@ -291,6 +291,14 @@ extern char &BreakCriticalEdgesID;
 
 //===----------------------------------------------------------------------===//
 //
+// EndianEmulation Pass - Implement endian API by inserting bswap
+// instructions.
+//
+ModulePass *createBigEndianEmulationPass();
+ModulePass *createLittleEndianEmulationPass();
+  
+//===----------------------------------------------------------------------===//
+//
 // LoopSimplify - Insert Pre-header blocks into the CFG for every function in
 // the module.  This pass updates dominator information, loop information, and
 // does not add critical edges to the CFG.

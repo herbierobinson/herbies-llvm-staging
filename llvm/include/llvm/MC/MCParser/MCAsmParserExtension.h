@@ -38,8 +38,38 @@ protected:
     return (Obj->*Handler)(Directive, DirectiveLoc);
   }
 
+  template<bool (MCAsmParserExtension::*HandlerMethod)(StringRef, SMLoc)>
+  void addDirectiveHandler(StringRef Directive) {
+    MCAsmParser::ExtensionDirectiveHandler Handler = std::make_pair(
+                                                                    this, HandleDirective<MCAsmParserExtension, HandlerMethod>);
+    
+    getParser().addDirectiveHandler(Directive, Handler);
+  }
+
   bool BracketExpressionsSupported;
 
+  // Win64 EH directives.
+  bool ParseSEHDirectiveStartProc(StringRef, SMLoc);
+  bool ParseSEHDirectiveEndProc(StringRef, SMLoc);
+  bool ParseSEHDirectiveStartChained(StringRef, SMLoc);
+  bool ParseSEHDirectiveEndChained(StringRef, SMLoc);
+  bool ParseSEHDirectiveHandler(StringRef, SMLoc);
+  bool ParseSEHDirectiveHandlerData(StringRef, SMLoc);
+  bool ParseSEHDirectivePushReg(StringRef, SMLoc);
+  bool ParseSEHDirectiveSetFrame(StringRef, SMLoc);
+  bool ParseSEHDirectiveAllocStack(StringRef, SMLoc);
+  bool ParseSEHDirectiveSaveReg(StringRef, SMLoc);
+  bool ParseSEHDirectiveSaveXMM(StringRef, SMLoc);
+  bool ParseSEHDirectivePushFrame(StringRef, SMLoc);
+  bool ParseSEHDirectiveEndProlog(StringRef, SMLoc);
+  bool ParseSEHDirectiveGotSaveOffset(StringRef, SMLoc);
+  bool ParseSEHDirectiveSaveBasePtr(StringRef, SMLoc);
+  bool ParseSEHDirectiveBeginEpilog(StringRef, SMLoc);
+  bool ParseSEHDirectiveEndEpilog(StringRef, SMLoc);
+  
+  bool ParseAtUnwindOrAtExcept(bool &unwind, bool &except);
+  bool ParseSEHRegisterNumber(unsigned &RegNo);
+  
 public:
   virtual ~MCAsmParserExtension();
 

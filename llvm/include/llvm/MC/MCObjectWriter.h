@@ -45,10 +45,13 @@ class MCObjectWriter {
 
 protected:
   unsigned IsLittleEndian : 1;
+  unsigned ByteSwapedRelocationsSupported : 1;
 
 protected: // Can only create subclasses.
-  MCObjectWriter(raw_pwrite_stream &OS, bool IsLittleEndian)
-      : OS(&OS), IsLittleEndian(IsLittleEndian) {}
+  MCObjectWriter(raw_pwrite_stream &OS, bool IsLittleEndian,
+                 bool ByteSwapedRelocationsSupported = false)
+      : OS(&OS), IsLittleEndian(IsLittleEndian),
+  ByteSwapedRelocationsSupported(ByteSwapedRelocationsSupported)  {}
 
   unsigned getInitialOffset() {
     return OS->tell();
@@ -61,6 +64,8 @@ public:
   virtual void reset() {}
 
   bool isLittleEndian() const { return IsLittleEndian; }
+  bool getByteSwapedRelocationsSupported() const
+  { return ByteSwapedRelocationsSupported; }
 
   raw_pwrite_stream &getStream() { return *OS; }
   void setStream(raw_pwrite_stream &NewOS) { OS = &NewOS; }

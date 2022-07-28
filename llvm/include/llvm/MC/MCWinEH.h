@@ -10,14 +10,13 @@
 #ifndef LLVM_MC_MCWINEH_H
 #define LLVM_MC_MCWINEH_H
 
+#include "llvm/MC/MCStreamer.h"
 #include <vector>
 
 namespace llvm {
-class MCSection;
-class MCStreamer;
-class MCSymbol;
 
 namespace WinEH {
+  
 struct Instruction {
   const MCSymbol *Label;
   const unsigned Offset;
@@ -28,39 +27,72 @@ struct Instruction {
     : Label(L), Offset(Off), Register(Reg), Operation(Op) {}
 };
 
-struct FrameInfo {
-  const MCSymbol *Begin = nullptr;
-  const MCSymbol *End = nullptr;
+
+
+class FrameInfo: public SEHFrameInfo {
+
+public:
+  MCStreamer &Streamer;
+  SEHFrameInfo *ChainedParent = nullptr;
   const MCSymbol *ExceptionHandler = nullptr;
-  const MCSymbol *Function = nullptr;
   const MCSymbol *PrologEnd = nullptr;
-  const MCSymbol *Symbol = nullptr;
   const MCSection *TextSection = nullptr;
 
   bool HandlesUnwind = false;
   bool HandlesExceptions = false;
 
   int LastFrameInst = -1;
-  const FrameInfo *ChainedParent = nullptr;
   std::vector<Instruction> Instructions;
 
-  FrameInfo() = default;
-  FrameInfo(const MCSymbol *Function, const MCSymbol *BeginFuncEHLabel)
-      : Begin(BeginFuncEHLabel), Function(Function) {}
-  FrameInfo(const MCSymbol *Function, const MCSymbol *BeginFuncEHLabel,
-            const FrameInfo *ChainedParent)
-      : Begin(BeginFuncEHLabel), Function(Function),
-        ChainedParent(ChainedParent) {}
+  FrameInfo(MCStreamer *Streamer, SEHFrameInfo *ChainedParent)
+    : Streamer(*Streamer), ChainedParent(ChainedParent) {}
+  virtual ~FrameInfo();
+
+  virtual void EmitWinCFIStartProc(const MCSymbol *Symbol,
+                                   const class Function *F = nullptr,
+                                   const StringRef Name = "",
+                                   int32_t NArgs = -2, bool isSubroutine = false,
+                                   bool isFunction = false) override;
+  virtual void EmitWinCFIEndProc() override;
+  virtual void EmitWinCFIStartChained() override;
+  virtual SEHFrameInfo *EmitWinCFIEndChained() override;
+  virtual void EmitWinCFIPushReg(unsigned Register, bool isFrameptr = false) override;
+  virtual void EmitWinCFISetFrame(unsigned Register, unsigned Offset) override;
+  virtual void EmitWinCFIAllocStack(unsigned Size) override;
+  virtual void EmitWinCFISaveReg(unsigned Register, unsigned Offset) override;
+  virtual void EmitWinCFISaveXMM(unsigned Register, unsigned Offset) override;
+  virtual void EmitWinCFIPushFrame(bool Code) override;
+  virtual void EmitWinCFIEndProlog() override;
+  virtual void EmitWinCFIGotSaveOffset(unsigned Offset) override;
+  virtual void EmitWinCFISaveBasePtr(unsigned Register, unsigned FrameOffset,
+                                     unsigned FrameEndSize = 0) override;
+  virtual void EmitWinCFIBeginEpilog() override;
+  virtual void EmitWinCFIEndEpilog() override;
+
+  virtual void EmitWinEHHandler(const MCSymbol *Sym, bool Unwind, bool Except) override;
+  virtual void EmitWinEHHandlerData() override;
+
+  virtual void EmitUnwindInfo() override;
+
+  virtual bool isValidWinFrameInfo() override;
+  virtual SEHFrameInfo *GetChainedParent() override;
+  
+private:
+  void EmitLabel(MCSymbol *Symbol) { Streamer.EmitLabel(Symbol); }
+  MCContext &getContext() const { return Streamer.getContext(); }
 };
 
-class UnwindEmitter {
+  
+class UnwindEmitter: public SEHUnwindEmitter {
 public:
   virtual ~UnwindEmitter();
 
+  virtual SEHFrameInfo *createSEHFrameInfo(MCStreamer *Streamer,
+                                           SEHFrameInfo *PrevFrame = nullptr) override;
+
   /// This emits the unwind info sections (.pdata and .xdata in PE/COFF).
-  virtual void Emit(MCStreamer &Streamer) const = 0;
-  virtual void EmitUnwindInfo(MCStreamer &Streamer, FrameInfo *FI) const = 0;
-};
+  virtual void Emit(MCStreamer &Streamer) override;
+ };
 }
 }
 

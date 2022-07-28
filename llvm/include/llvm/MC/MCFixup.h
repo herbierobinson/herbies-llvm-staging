@@ -74,23 +74,28 @@ class MCFixup {
 
   /// The target dependent kind of fixup item this is. The kind is used to
   /// determine how the operand value should be encoded into the instruction.
-  unsigned Kind;
+  uint16_t Kind;
+  
+  bool Bswap;
 
   /// The source location which gave rise to the fixup, if any.
   SMLoc Loc;
 public:
   static MCFixup create(uint32_t Offset, const MCExpr *Value,
-                        MCFixupKind Kind, SMLoc Loc = SMLoc()) {
+                        MCFixupKind Kind, SMLoc Loc = SMLoc(),
+                        bool Bswap = false) {
     assert(unsigned(Kind) < MaxTargetFixupKind && "Kind out of range!");
     MCFixup FI;
     FI.Value = Value;
     FI.Offset = Offset;
     FI.Kind = unsigned(Kind);
     FI.Loc = Loc;
+    FI.Bswap = Bswap;
     return FI;
   }
 
   MCFixupKind getKind() const { return MCFixupKind(Kind); }
+  bool getBswap() const { return Bswap; }
 
   uint32_t getOffset() const { return Offset; }
   void setOffset(uint32_t Value) { Offset = Value; }

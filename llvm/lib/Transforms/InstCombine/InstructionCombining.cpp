@@ -744,6 +744,149 @@ Value *InstCombiner::dyn_castFNegVal(Value *V, bool IgnoreZeroSign) const {
   return nullptr;
 }
 
+// This routines tests an operand to see if it's a one of the followoing
+// cases:
+//
+//   bswap(inArg)         shiftCount is zero.
+//   zext(bswap(inArg))   shiftCount is positive number of bits extended
+//   trunc(bswap(inArg)) shiftCount is negative number of bits truncated
+//
+// BswapToShift may use the results of this check.
+
+bool InstCombiner::ArgHasBswap(Value *arg, Value *&bSwap, Value *&inArg,
+                               int &shiftCount) {
+  bSwap = NULL;
+  inArg = NULL;
+  shiftCount = 0;
+  
+  if (match(arg, m_BSwap(m_Value(inArg)))) {
+    bSwap = arg;
+    return true;
+  }
+  
+  if (match(arg, m_ZExt(m_Value(bSwap)))
+      && match(bSwap, m_BSwap(m_Value(inArg)))) {
+    
+    shiftCount = arg->getType()->getScalarSizeInBits()
+    - inArg->getType()->getScalarSizeInBits();
+    return true;
+  }
+  if (match(arg, m_Trunc(m_Value(bSwap)))
+      && match(bSwap, m_BSwap(m_Value(inArg)))) {
+    
+    shiftCount = arg->getType()->getScalarSizeInBits()
+    - inArg->getType()->getScalarSizeInBits();
+    return true;
+  }
+  return false;
+}
+
+// This routine generates the appropriate code for the arguments returned
+// from ArgHasBswap.
+// If the shift count is zero, we just toss the bswap and return it's argument;
+// Otherwise, we need to insert a shift either in front of the
+// bswap to align the original value with the expected result.
+// We can't get rid of the bswap, because we don't know if it's dead.
+//
+// This routine should always be paired with ArgHasBswap.
+
+Value *InstCombiner::BswapToShift(Value *arg, Value *bSwap, Value *inArg,
+                                  int shiftCount) {
+  if (shiftCount == 0)
+    return inArg;
+  
+  int count = (shiftCount < 0) ? -shiftCount : shiftCount;
+  Value *countArg = ConstantInt::get(bSwap->getType(), count, false);
+  Instruction *ins = dyn_cast<Instruction>(bSwap);
+  Instruction *newInst = (shiftCount < 0)
+  ? BinaryOperator::CreateLShr(inArg, countArg, bSwap->getName(), ins)
+  : BinaryOperator::CreateShl(inArg, countArg, bSwap->getName(), ins);
+  
+  // Put arg and bswap onto list of things to be checked for dead.
+  // Do arg first; so, it's reference to the bswap gets decremented before
+  // considering the bswap.
+  Worklist.Add(dyn_cast<Instruction>(arg));
+  Worklist.Add(dyn_cast<Instruction>(bSwap));
+  
+  return newInst;
+}
+
+// This routine operates on an And, Or, Xor or Icmp instruction.
+// If the instruction is icmp, the relation may only be == or !=.
+// This optimizes the case where both arguments have been bswapped OR
+// one argument has been bswapped and the other argument is constant.
+//
+// When both arguments are bswapped, the bswaps on the operands are removed.
+//
+// When on argument has been bswapped and the other is a constant, the
+// bswap is removed and the constant is bswapped.
+//
+// If the opcode is Icmp, nothing else needs to be done, because ==
+// and != compares work no matter what the endianess; otherwse, we
+// must bswap the result.
+
+Instruction *
+InstCombiner::CombineLogicalBswaps(unsigned opcode, Instruction &I) {
+  Module *m = I.getModule();
+  LLVMContext &context = I.getContext();
+  Value *Op0 = I.getOperand(0), *Op1 = I.getOperand(1);
+  Value *bSwap0 = NULL; Value *bSwap1 = NULL;
+  Value *inArg0 = NULL; Value *inArg1 = NULL;
+  int shiftCount0 = 0; int shiftCount1 = 0;
+  
+  bool bs0 = false;
+  bool bs1 = false;
+  ConstantInt *c1 = NULL;
+  
+  // If there is a constant arg, make it op1.
+  // Also analyze the other arg(s) for bswap.
+  if ((c1 = dyn_cast<ConstantInt>(Op0))) {
+    std::swap(Op0, Op1);
+    bs0 = ArgHasBswap(Op0, bSwap0, inArg0, shiftCount0);
+  } else if ((c1 = dyn_cast<ConstantInt>(Op1))) {
+    bs0 = ArgHasBswap(Op0, bSwap0, inArg0, shiftCount0);
+  } else {
+    bs0 = ArgHasBswap(Op0, bSwap0, inArg0, shiftCount0);
+    bs1 = ArgHasBswap(Op1, bSwap1, inArg1, shiftCount1);
+  }
+  
+  if (!bs0)
+    return NULL;
+  
+  // Prepare the operanads.  They are the same in all cases.
+  if (c1) {
+    // Emit bswap(op(shift(op0), bswap(constant)))
+    Op0 = BswapToShift(Op0, bSwap0, inArg0, shiftCount0);
+    Op1 = ConstantInt::get(context, c1->getValue().byteSwap());
+  }
+  else if (bs1) {
+    // Emit bswap(op(shift(op0), shift(op1)))
+    Op0 = BswapToShift(Op0, bSwap0, inArg0, shiftCount0);
+    Op1 = BswapToShift(Op1, bSwap1, inArg1, shiftCount1);
+  }
+  else
+    return NULL;
+
+  // Replace the operands.  Don't generate new instructions, because
+  // that might lose metadata.
+  I.setOperand(0, Op0);
+  I.setOperand(1, Op1);
+
+  Instruction *result = &I;
+
+  if (opcode != Instruction::ICmp)
+  {
+    // Emit result = bswap(result)
+    Type *OpType = result->getType();
+    Function *BswapFunc = Intrinsic::getDeclaration(
+                                                    m, Intrinsic::bswap,
+                                                    ArrayRef<Type*>(&OpType, 1));
+    result = CallInst::Create(BswapFunc, result);
+  }
+  
+  return result;
+}
+
 static Value *foldOperationIntoSelectOperand(Instruction &I, Value *SO,
                                              InstCombiner *IC) {
   if (auto *Cast = dyn_cast<CastInst>(&I))

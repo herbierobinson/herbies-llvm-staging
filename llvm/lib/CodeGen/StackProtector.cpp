@@ -127,7 +127,7 @@ bool StackProtector::ContainsProtectableArray(Type *Ty, bool &IsLarge,
       // add stack protectors unless the array is a character array.
       // However, in strong mode any array, regardless of type and size,
       // triggers a protector.
-      if (!Strong && (InStruct || !Trip.isOSDarwin()))
+      if (!Strong && (InStruct || !(Trip.isOSDarwin() || Trip.isOSVos())))
         return false;
     }
 

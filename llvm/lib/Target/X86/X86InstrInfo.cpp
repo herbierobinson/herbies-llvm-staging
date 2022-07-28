@@ -9564,6 +9564,21 @@ namespace {
       MachineRegisterInfo &RegInfo = MF.getRegInfo();
       const X86InstrInfo *TII = STI.getInstrInfo();
 
+      // VOS i32 bit PIC requires that EDX be loaded by the caller and present
+      // upon entry.  Note that PICStyleGOT is 32 bit only.
+      if (STI.isPICStyleGOT() && STI.isTargetVos()) {
+        bool NeedsWinCFI = MF.getTarget().getMCAsmInfo()->usesWindowsCFI()
+                        && MF.getFunction()->needsUnwindTableEntry();
+        if (NeedsWinCFI) {
+          X86MachineFunctionInfo *X86FI = MF.getInfo<X86MachineFunctionInfo>();
+          X86FI->setSpecialFrameSlotPresent(&MF, X86MachineFunctionInfo::ExceptionHandlerGOTP);
+        }
+
+        MF.getRegInfo().addLiveIn(X86::EDX /*, GlobalBaseReg*/);
+        BuildMI(FirstMBB, MBBI, DL, TII->get(X86::COPY), GlobalBaseReg).addReg(X86::EDX);
+        return true;
+      }
+
       unsigned PC;
       if (STI.isPICStyleGOT())
         PC = RegInfo.createVirtualRegister(&X86::GR32RegClass);

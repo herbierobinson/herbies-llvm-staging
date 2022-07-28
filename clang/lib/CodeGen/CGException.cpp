@@ -206,7 +206,7 @@ const EHPersonality &EHPersonality::get(CodeGenModule &CGM,
   // Try to pick a personality function that is compatible with MSVC if we're
   // not compiling Obj-C. Obj-C users better have an Obj-C runtime that supports
   // the GCC-style personality function.
-  if (T.isWindowsMSVCEnvironment() && !L.ObjC1) {
+  if ((T.isWindowsMSVCEnvironment() || T.isOSVos()) && !L.ObjC1) {
     if (L.SjLjExceptions)
       return EHPersonality::GNU_CPlusPlus_SJLJ;
     else

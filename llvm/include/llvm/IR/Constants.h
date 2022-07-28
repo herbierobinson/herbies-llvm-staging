@@ -1178,6 +1178,29 @@ public:
                                   ArrayRef<unsigned> Idxs,
                                   Type *OnlyIfReducedTy = nullptr);
 
+  /// @returns a shuffle mask that will perform a bswap for the scalar/vector
+  /// of the specified type.
+  static Constant *GenerateBswapShuffleMask(const class DataLayout *TD,
+                                           class Type *T);
+  
+  /// See if the passed in constant is a shuffled mask to bswap the scalar/vector
+  /// of the specified type.
+  static bool isaBswapShuffleMask(const class DataLayout *TD, class Type *T,
+                                  Constant *mask);
+  
+  // The there is no bswap function for ConstantExpr and we also
+  // need to support all first class types.
+  // First, convert [vectors of] pointers to [vectors of] integers, if necessary.
+  // After that, we bitcast the result to a vector of i8s.
+  // Next, we emit a shulffle for the vector of i8s.
+  // Lastly, we reverse the bitcast and any PtrToInt.
+  static Constant *getBswapOfFirstClassType(const DataLayout *TD, Constant *arg);
+
+  // MatchBswapFirstClassConstant checks to see if this is a bswapped constant
+  // and returns the argument if it is; otherwise, it returns nullptr.
+  static const Constant *matchBswapOfFirstClassType(const DataLayout *TD,
+                                                    const Constant *arg);
+
   /// Return the opcode at the root of this constant expression
   unsigned getOpcode() const { return getSubclassDataFromValue(); }
 

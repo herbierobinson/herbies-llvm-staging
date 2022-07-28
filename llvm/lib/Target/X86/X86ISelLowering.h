@@ -62,6 +62,7 @@ namespace llvm {
       ///
       ///     #0 - The incoming token chain
       ///     #1 - The callee
+      ///     The following apear to be wrong...
       ///     #2 - The number of arg bytes the caller pushes on the stack.
       ///     #3 - The number of arg bytes the callee pops off the stack.
       ///     #4 - The value to pass in AL/AX/EAX (optional)
@@ -1180,6 +1181,11 @@ namespace llvm {
                         const SmallVectorImpl<SDValue> &OutVals,
                         const SDLoc &dl, SelectionDAG &DAG) const override;
 
+    SDValue x8632VosFunctionPointerLoad(
+                        TargetLowering::CallLoweringInfo &CLI,
+                        SmallVector<std::pair<unsigned, SDValue>, 8> &RegsToPass,
+                        SDValue Callee) const;
+    
     bool supportSplitCSR(MachineFunction *MF) const override {
       return MF->getFunction()->getCallingConv() == CallingConv::CXX_FAST_TLS &&
           MF->getFunction()->hasFnAttribute(Attribute::NoUnwind);
@@ -1293,6 +1299,19 @@ namespace llvm {
     FastISel *createFastISel(FunctionLoweringInfo &funcInfo,
                              const TargetLibraryInfo *libInfo);
   } // end namespace X86
+
+  extern void x86ArgumentPreallocations(const X86Subtarget *Subtarget,
+                                        bool IsCalleeWin64,
+                                        const SmallVectorImpl<ISD::InputArg> &In,
+                                        CCState &CCInfo);
+  extern void x86ArgumentPreallocations(const X86Subtarget *Subtarget,
+                                        bool IsCalleeWin64,
+                                        const SmallVectorImpl<ISD::OutputArg> &Out,
+                                        CCState &CCInfo);
+  extern void x86ArgumentPreallocations(const X86Subtarget *Subtarget,
+                                        bool IsCalleeWin64,
+                                        SmallVector<ISD::ArgFlagsTy, 16> &OutFlags,
+                                        CCState &CCInfo);
 
   // Base class for all X86 non-masked store operations.
   class X86StoreSDNode : public MemSDNode {

@@ -3109,6 +3109,8 @@ static unsigned computeBytesPoppedByCalleeForSRet(const X86Subtarget *Subtarget,
         CS->paramHasAttr(1, Attribute::InReg) || Subtarget->isTargetMCU())
       return 0;
 
+  if (Subtarget->isTargetVos())
+    return 0;
   return 4;
 }
 
@@ -3218,9 +3220,7 @@ bool X86FastISel::fastLowerCall(CallLoweringInfo &CLI) {
   SmallVector<CCValAssign, 16> ArgLocs;
   CCState CCInfo(CC, IsVarArg, *FuncInfo.MF, ArgLocs, CLI.RetTy->getContext());
 
-  // Allocate shadow area for Win64
-  if (IsWin64)
-    CCInfo.AllocateStack(32, 8);
+  x86ArgumentPreallocations(Subtarget, IsWin64, OutFlags, CCInfo);
 
   CCInfo.AnalyzeCallOperands(OutVTs, OutFlags, CC_X86);
 
@@ -3362,7 +3362,8 @@ bool X86FastISel::fastLowerCall(CallLoweringInfo &CLI) {
   if (Subtarget->isPICStyleGOT()) {
     unsigned Base = getInstrInfo()->getGlobalBaseReg(FuncInfo.MF);
     BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc,
-            TII.get(TargetOpcode::COPY), X86::EBX).addReg(Base);
+            TII.get(TargetOpcode::COPY),
+            (Subtarget->isTargetVos()) ? X86::EDX : X86::EBX).addReg(Base);
   }
 
   if (Is64Bit && IsVarArg && !IsWin64) {

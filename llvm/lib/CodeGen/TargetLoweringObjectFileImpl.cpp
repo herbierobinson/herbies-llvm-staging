@@ -55,7 +55,8 @@ MCSymbol *TargetLoweringObjectFileELF::getCFIPersonalitySymbol(
   unsigned Encoding = getPersonalityEncoding();
   if ((Encoding & 0x80) == dwarf::DW_EH_PE_indirect)
     return getContext().getOrCreateSymbol(StringRef("DW.ref.") +
-                                          TM.getSymbol(GV)->getName());
+                                          TM.getSymbol(GV)->getName(),
+                                          isa<Function>(GV));
   if ((Encoding & 0x70) == dwarf::DW_EH_PE_absptr)
     return TM.getSymbol(GV);
   report_fatal_error("We do not support this DWARF encoding yet!");

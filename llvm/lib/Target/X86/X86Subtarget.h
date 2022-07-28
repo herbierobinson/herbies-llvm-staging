@@ -300,9 +300,28 @@ protected:
   unsigned stackAlignment;
 
   /// Max. memset / memcpy size that is turned into rep/movs, rep/stos ops.
-  ///
   unsigned MaxInlineSizeThreshold;
-
+  
+  /// Universal function pointers consist of two or three pointer fields:
+  /// A code address, the "nest" pointer, and optionally, the GOTP.
+  /// The nest pointer is often called the display pointer.
+  /// In pl1, these are known as procedure variables.
+  /// If the function referenced is not nested, the value for the nest pointer
+  /// may be unspecified; although, it should have the same value for all instances.
+  /// C function pointers are pointers to universal function pointers; so, they
+  /// may be cast as other pointers.
+  /// Universal funciton pointers are needed for complete call interchangeability
+  /// with pl1, because pl1 allows procedure variables to point at nested
+  /// functions.  There is no way to know syntactically if a pl1 procedure variable
+  /// points at a nested function; so, the code has to work whether they do or not.
+  /// This is accomplished by ensuring that the argument with the "nest" flag is
+  /// assigned to a dedicated register.  Universal function pointers are inserted
+  /// into the LLVM code in a machine independent pass, but the machine dependent
+  /// lowering function has to ensure that the register reserved for the "next"
+  /// pointer never gets used for any function arguments of nested functions,
+  /// functions assigned to a procedure variable or functions with external linkage.
+  bool UsingUniversalFunctionPointers;
+ 
   /// What processor and OS we're targeting.
   Triple TargetTriple;
 
@@ -512,6 +531,8 @@ public:
   bool isTargetDragonFly() const { return TargetTriple.isOSDragonFly(); }
   bool isTargetSolaris() const { return TargetTriple.isOSSolaris(); }
   bool isTargetPS4() const { return TargetTriple.isPS4CPU(); }
+  bool isTargetVos() const { return TargetTriple.isOSVos(); }
+  bool isTargetVosIa32() const { return TargetTriple.isOSVosIa32(); }
 
   bool isTargetELF() const { return TargetTriple.isOSBinFormatELF(); }
   bool isTargetCOFF() const { return TargetTriple.isOSBinFormatCOFF(); }

@@ -18,6 +18,7 @@
 #include "llvm/ADT/Twine.h"
 #include "llvm/MC/MCDwarf.h"
 #include "llvm/MC/MCSubtargetInfo.h"
+#include "llvm/MC/MCSectionELF.h"
 #include "llvm/MC/SectionKind.h"
 #include "llvm/Support/Allocator.h"
 #include "llvm/Support/Compiler.h"
@@ -221,9 +222,9 @@ namespace llvm {
     bool HadError;
 
     MCSymbol *createSymbolImpl(const StringMapEntry<bool> *Name,
-                               bool CanBeUnnamed);
+                               bool CanBeUnnamed, bool IsFunction = false);
     MCSymbol *createSymbol(StringRef Name, bool AlwaysAddSuffix,
-                           bool IsTemporary);
+                           bool IsTemporary, bool IsFunction = false);
 
     MCSymbol *getOrCreateDirectionalLocalSymbol(unsigned LocalLabelVal,
                                                 unsigned Instance);
@@ -289,7 +290,7 @@ namespace llvm {
     /// return it.  If not, create a forward reference and return it.
     ///
     /// \param Name - The symbol name, which must be unique across all symbols.
-    MCSymbol *getOrCreateSymbol(const Twine &Name);
+    MCSymbol *getOrCreateSymbol(const Twine &Name, bool IsFunction = false);
 
     /// Gets a symbol that will be defined to the final stack offset of a local
     /// variable after codegen.

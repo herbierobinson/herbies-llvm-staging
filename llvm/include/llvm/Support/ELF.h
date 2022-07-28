@@ -351,6 +351,7 @@ enum {
   ELFOSABI_AROS = 15,         // AROS
   ELFOSABI_FENIXOS = 16,      // FenixOS
   ELFOSABI_CLOUDABI = 17,     // Nuxi CloudABI
+  ELFOSABI_OPENVOS = 18,      // Stratus Technologies OpenVOS”
   ELFOSABI_C6000_ELFABI = 64, // Bare-metal TMS320C6000
   ELFOSABI_AMDGPU_HSA = 64,   // AMD HSA runtime
   ELFOSABI_C6000_LINUX = 65,  // Linux TMS320C6000
@@ -368,6 +369,7 @@ enum {
 // i386 relocations.
 enum {
 #include "ELFRelocs/i386.def"
+#include "ELFRelocs/i386_vos.def"
 };
 
 // ELF Relocation types for PPC32

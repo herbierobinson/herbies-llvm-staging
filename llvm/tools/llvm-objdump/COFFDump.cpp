@@ -44,6 +44,9 @@ static StringRef getUnwindCodeTypeName(uint8_t Code) {
   case UOP_SaveXMM128: return "UOP_SaveXMM128";
   case UOP_SaveXMM128Big: return "UOP_SaveXMM128Big";
   case UOP_PushMachFrame: return "UOP_PushMachFrame";
+  case UOP_SaveBasePtr: return "SAVE_BASE_PTR";
+  case UOP_BeginEpilog: return "BEGIN_EPILOG";
+  case UOP_EndEpilog: return "END_EPILOG";
   }
 }
 
@@ -87,6 +90,12 @@ static unsigned getNumUsedSlots(const UnwindCode &UnwindCode) {
     return 3;
   case UOP_AllocLarge:
     return (UnwindCode.getOpInfo() == 0) ? 2 : 3;
+  case UOP_SaveBasePtr:
+    return 0;
+  case UOP_BeginEpilog:
+    return 0;
+  case UOP_EndEpilog:
+    return 0;
   }
 }
 
@@ -136,6 +145,15 @@ static void printUnwindCode(ArrayRef<UnwindCode> UCs) {
   case UOP_PushMachFrame:
     outs() << " " << (UCs[0].getOpInfo() ? "w/o" : "w")
            << " error code";
+    break;
+  case UOP_SaveBasePtr:
+    outs() << " ";
+    break;
+  case UOP_BeginEpilog:
+    outs() << " ";
+    break;
+  case UOP_EndEpilog:
+    outs() << " ";
     break;
   }
   outs() << "\n";

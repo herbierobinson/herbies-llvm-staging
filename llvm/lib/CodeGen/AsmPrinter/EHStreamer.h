@@ -122,6 +122,9 @@ public:
   EHStreamer(AsmPrinter *A);
   ~EHStreamer() override;
 
+  bool IsELF();
+  bool IsCOFF();
+  
   // Unused.
   void setSymbolSize(const MCSymbol *Sym, uint64_t Size) override {}
   void beginInstruction(const MachineInstr *MI) override {}

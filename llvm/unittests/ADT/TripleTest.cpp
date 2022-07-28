@@ -206,6 +206,12 @@ TEST(TripleTest, ParsedIDs) {
   EXPECT_EQ(Triple::CloudABI, T.getOS());
   EXPECT_EQ(Triple::UnknownEnvironment, T.getEnvironment());
 
+  T = Triple("i686-stratus-vos");
+  EXPECT_EQ(Triple::x86, T.getArch());
+  EXPECT_EQ(Triple::Stratus, T.getVendor());
+  EXPECT_EQ(Triple::VOS, T.getOS());
+  EXPECT_EQ(Triple::UnknownEnvironment, T.getEnvironment());
+  
   T = Triple("x86_64-unknown-fuchsia");
   EXPECT_EQ(Triple::x86_64, T.getArch());
   EXPECT_EQ(Triple::UnknownVendor, T.getVendor());

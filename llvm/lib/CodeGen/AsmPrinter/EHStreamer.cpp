@@ -689,3 +689,13 @@ void EHStreamer::emitTypeInfos(unsigned TTypeEncoding) {
     Asm->EmitULEB128(TypeID);
   }
 }
+
+bool EHStreamer::IsELF() {
+  return Asm->OutContext.getObjectFileInfo()->getObjectFileType()
+              == MCObjectFileInfo::IsELF;
+}
+
+bool EHStreamer::IsCOFF() {
+  return Asm->OutContext.getObjectFileInfo()->getObjectFileType()
+              == MCObjectFileInfo::IsCOFF;
+}

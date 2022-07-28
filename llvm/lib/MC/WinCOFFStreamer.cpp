@@ -284,10 +284,6 @@ void MCWinCOFFStreamer::EmitIdent(StringRef IdentString) {
   llvm_unreachable("not implemented");
 }
 
-void MCWinCOFFStreamer::EmitWinEHHandlerData() {
-  llvm_unreachable("not implemented");
-}
-
 void MCWinCOFFStreamer::FinishImpl() {
   MCObjectStreamer::FinishImpl();
 }

@@ -33,6 +33,7 @@
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/SourceMgr.h"
+#include "llvm/MC/MCWinEH.h"
 #include <cctype>
 
 using namespace llvm;
@@ -84,6 +85,9 @@ public:
     }
     EmitCommentsAndEOL();
   }
+
+  virtual void PushEndian(bool NewLittleEndian) override;
+  virtual void PopEndian() override;
 
   void EmitSyntaxDirective() override;
 
@@ -175,7 +179,8 @@ public:
 
   void EmitValueImpl(const MCExpr *Value, unsigned Size,
                      SMLoc Loc = SMLoc()) override;
-  void EmitIntValue(uint64_t Value, unsigned Size) override;
+  void EmitIntValue(uint64_t Value, unsigned Size,
+                    bool UseCurrentEndian = false) override;
 
   void EmitULEB128Value(const MCExpr *Value) override;
 
@@ -263,17 +268,25 @@ public:
   void EmitCFIRegister(int64_t Register1, int64_t Register2) override;
   void EmitCFIWindowSave() override;
 
-  void EmitWinCFIStartProc(const MCSymbol *Symbol) override;
+  void EmitWinCFIStartProc(const MCSymbol *Symbol,
+                           const Function *F = nullptr, StringRef Name = "",
+                           int32_t NArgs = -2, bool isSubroutine = false,
+                           bool isFunction = false) override;
   void EmitWinCFIEndProc() override;
   void EmitWinCFIStartChained() override;
   void EmitWinCFIEndChained() override;
-  void EmitWinCFIPushReg(unsigned Register) override;
+  void EmitWinCFIPushReg(unsigned Register, bool isFrameptr = false) override;
   void EmitWinCFISetFrame(unsigned Register, unsigned Offset) override;
   void EmitWinCFIAllocStack(unsigned Size) override;
   void EmitWinCFISaveReg(unsigned Register, unsigned Offset) override;
   void EmitWinCFISaveXMM(unsigned Register, unsigned Offset) override;
   void EmitWinCFIPushFrame(bool Code) override;
   void EmitWinCFIEndProlog() override;
+  void EmitWinCFIGotSaveOffset(unsigned Offset) override;
+  void EmitWinCFISaveBasePtr(unsigned Register, unsigned FrameOffset,
+                             unsigned FrameEndSize = 0) override;
+  void EmitWinCFIBeginEpilog() override;
+  void EmitWinCFIEndEpilog() override;
 
   void EmitWinEHHandler(const MCSymbol *Sym, bool Unwind, bool Except) override;
   void EmitWinEHHandlerData() override;
@@ -296,6 +309,17 @@ public:
 };
 
 } // end anonymous namespace.
+
+void MCAsmStreamer::PushEndian(bool NewLittleEndian) {
+  MCStreamer::PushEndian(NewLittleEndian);
+  const char *flag = NewLittleEndian ? "little" : "big";
+  OS << "\t.pushendian " << flag << "\n";
+}
+
+void MCAsmStreamer::PopEndian() {
+  MCStreamer::PopEndian();
+  OS << "\t.popendian\n";
+}
 
 /// AddComment - Add a comment that can be emitted to the generated .s
 /// file if applicable as a QoI issue to make the output of the compiler
@@ -794,7 +818,8 @@ void MCAsmStreamer::EmitBinaryData(StringRef Data) {
   }
 }
 
-void MCAsmStreamer::EmitIntValue(uint64_t Value, unsigned Size) {
+void MCAsmStreamer::EmitIntValue(uint64_t Value, unsigned Size,
+                                 bool UseCurrentEndian) {
   EmitValue(MCConstantExpr::create(Value, getContext()), Size);
 }
 
@@ -1395,11 +1420,48 @@ void MCAsmStreamer::EmitCFIWindowSave() {
   EmitEOL();
 }
 
-void MCAsmStreamer::EmitWinCFIStartProc(const MCSymbol *Symbol) {
-  MCStreamer::EmitWinCFIStartProc(Symbol);
+void MCAsmStreamer::EmitWinCFIStartProc(const MCSymbol *Symbol,
+                                        const Function *F, StringRef Name,
+                                        int32_t NArgs, bool isSubroutine,
+                                        bool isFunction) {
+  MCStreamer::EmitWinCFIStartProc(Symbol, F, Name, NArgs,
+                                  isSubroutine, isFunction);
 
   OS << ".seh_proc ";
   Symbol->print(OS, MAI);
+
+  if (getContext().getObjectFileInfo()->getObjectFileType()
+          != MCObjectFileInfo::IsCOFF) {
+    if (Name.size()) {
+      if (!MAI || MAI->isValidUnquotedName(Name)) {
+        OS << ", @name=" + Name;
+      } else if (!MAI || MAI->supportsNameQuoting()) {
+        OS << ", @name=";
+        OS << '"';
+        for (char C : Name) {
+          if (C == '\n')
+            OS << "\\n";
+          else if (C == '"')
+            OS << "\\\"";
+          else
+            OS << C;
+        }
+        OS << '"';
+      }
+      if (NArgs > -2) {
+        if (NArgs == -1) {
+          OS << ", @var_args";
+        } else {
+          OS << ", @num_args=";
+          OS << NArgs;
+        }
+      }
+      if (isSubroutine)
+        OS << ", @is_subroutine";
+      if (isFunction)
+        OS << ", @is_function";
+    }
+  }
   EmitEOL();
 }
 
@@ -1440,23 +1502,19 @@ void MCAsmStreamer::EmitWinEHHandler(const MCSymbol *Sym, bool Unwind,
 void MCAsmStreamer::EmitWinEHHandlerData() {
   MCStreamer::EmitWinEHHandlerData();
 
-  // Switch sections. Don't call SwitchSection directly, because that will
-  // cause the section switch to be visible in the emitted assembly.
-  // We only do this so the section switch that terminates the handler
-  // data block is visible.
-  WinEH::FrameInfo *CurFrame = getCurrentWinFrameInfo();
-  MCSection *TextSec = &CurFrame->Function->getSection();
-  MCSection *XData = getAssociatedXDataSection(TextSec);
-  SwitchSectionNoChange(XData);
-
   OS << "\t.seh_handlerdata";
   EmitEOL();
 }
 
-void MCAsmStreamer::EmitWinCFIPushReg(unsigned Register) {
-  MCStreamer::EmitWinCFIPushReg(Register);
+void MCAsmStreamer::EmitWinCFIPushReg(unsigned Register, bool isFrameptr) {
+  MCStreamer::EmitWinCFIPushReg(Register, isFrameptr);
 
   OS << "\t.seh_pushreg " << Register;
+  if (getContext().getObjectFileInfo()->getObjectFileType()
+      != MCObjectFileInfo::IsCOFF) {
+  if (isFrameptr)
+    OS << ", @frameptr";
+  }
   EmitEOL();
 }
 
@@ -1502,6 +1560,48 @@ void MCAsmStreamer::EmitWinCFIEndProlog() {
 
   OS << "\t.seh_endprologue";
   EmitEOL();
+}
+
+void MCAsmStreamer::EmitWinCFIGotSaveOffset(unsigned Offset) {
+  MCStreamer::EmitWinCFIGotSaveOffset(Offset);
+  
+  OS << "\t.seh_gotsaveoffset " << Offset;
+  EmitEOL();
+}
+
+void MCAsmStreamer::EmitWinCFISaveBasePtr(unsigned Register, unsigned FrameOffset,
+                                          unsigned FrameEndSize) {
+  MCStreamer::EmitWinCFISaveBasePtr(Register, FrameOffset);
+  
+  if (getContext().getObjectFileInfo()->getObjectFileType()
+      != MCObjectFileInfo::IsCOFF) {
+    OS << "\t.seh_savebaseptr " << Register << ", " << FrameOffset;
+    if (FrameEndSize) {
+      OS << ", ";
+      OS << FrameEndSize;
+    }
+  }
+  EmitEOL();
+}
+
+void MCAsmStreamer::EmitWinCFIBeginEpilog() {
+  MCStreamer::EmitWinCFIBeginEpilog();
+  
+  if (getContext().getObjectFileInfo()->getObjectFileType()
+      != MCObjectFileInfo::IsCOFF) {
+    OS << "\t.seh_beginepilogue";
+    EmitEOL();
+  }
+}
+
+void MCAsmStreamer::EmitWinCFIEndEpilog() {
+  MCStreamer::EmitWinCFIEndEpilog();
+  
+  if (getContext().getObjectFileInfo()->getObjectFileType()
+      != MCObjectFileInfo::IsCOFF) {
+    OS << "\t.seh_endepilogue";
+    EmitEOL();
+  }
 }
 
 void MCAsmStreamer::AddEncodingComment(const MCInst &Inst,

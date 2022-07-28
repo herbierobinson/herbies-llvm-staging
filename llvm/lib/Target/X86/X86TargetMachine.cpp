@@ -102,7 +102,7 @@ static std::string computeDataLayout(const Triple &TT) {
     Ret += "-p:32:32";
 
   // Some ABIs align 64 bit integers and doubles to 64 bits, others to 32.
-  if (TT.isArch64Bit() || TT.isOSWindows() || TT.isOSNaCl())
+  if (TT.isArch64Bit() || TT.isOSWindows() || TT.isOSNaCl() || TT.isOSVos())
     Ret += "-i64:64";
   else if (TT.isOSIAMCU())
     Ret += "-i64:32-f64:32";
@@ -112,7 +112,7 @@ static std::string computeDataLayout(const Triple &TT) {
   // Some ABIs align long double to 128 bits, others to 32.
   if (TT.isOSNaCl() || TT.isOSIAMCU())
     ; // No f80
-  else if (TT.isArch64Bit() || TT.isOSDarwin())
+  else if (TT.isArch64Bit() || TT.isOSDarwin() || TT.isOSVos())
     Ret += "-f80:128";
   else
     Ret += "-f80:32";
@@ -148,6 +148,8 @@ static Reloc::Model getEffectiveRelocModel(const Triple &TT,
       return Reloc::DynamicNoPIC;
     }
     if (TT.isOSWindows() && is64Bit)
+      return Reloc::PIC_;
+    if (TT.isOSVos())
       return Reloc::PIC_;
     return Reloc::Static;
   }

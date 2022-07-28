@@ -21,7 +21,8 @@
 namespace llvm {
 namespace object {
 
-StringRef getELFRelocationTypeName(uint32_t Machine, uint32_t Type);
+  StringRef getELFRelocationTypeName(uint32_t Machine, uint32_t Type,
+                                     unsigned char OSABI);
 
 // Subclasses of ELFFile may need this for template instantiation
 inline std::pair<unsigned char, unsigned char>
@@ -276,7 +277,8 @@ ELFFile<ELFT>::getSectionContents(const Elf_Shdr *Sec) const {
 
 template <class ELFT>
 StringRef ELFFile<ELFT>::getRelocationTypeName(uint32_t Type) const {
-  return getELFRelocationTypeName(getHeader()->e_machine, Type);
+  return getELFRelocationTypeName(getHeader()->e_machine, Type,
+                                  getHeader()->e_ident[ELF::EI_OSABI]);
 }
 
 template <class ELFT>

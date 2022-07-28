@@ -171,6 +171,8 @@ private:
                                   ///< Format: (arch)(sub)-(vendor)-(sys0-(abi)
   void *NamedMDSymTab;            ///< NamedMDNode names.
   DataLayout DL;                  ///< DataLayout associated with the module
+  bool EndianEmulationOptionGiven;
+  bool EndianEmulationLittleEndian;
 
   friend class Constant;
 

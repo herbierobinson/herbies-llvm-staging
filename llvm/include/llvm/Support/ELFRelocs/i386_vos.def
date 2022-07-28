@@ -1,0 +1,22 @@
+
+#ifndef ELF_RELOC
+#error "ELF_RELOC must be defined"
+#endif
+
+// Use this file along with i386.def.
+
+// VOS Messed up and used some duplicate values for relocation codes.
+// Relocation codes larger than R_386_TLS_LDO_32 are not supported by
+// the VOS binder.
+// This means that there is no way to do TLS in the VOS ia32 runtime
+// environment.  Well, there actually is a way:  The VOS operating system
+// nmaintains a separate GOT for each task and indicates which external
+// variables are shared in the native object format.  Unfortunately,
+// I'm pretty sure the requisite attribute bit wasn't added to ELF and we
+// really don't want to teach LLVM how to emit the native object format.
+
+ELF_RELOC(R_386VOS_32_MSB,      R_386_TLS_LDO_32)
+ELF_RELOC(R_386VOS_FPTR32,      R_386_TLS_IE_32)
+ELF_RELOC(R_386VOS_FPTR32MSB,   R_386_TLS_LE_32)
+ELF_RELOC(R_386VOS_GOT_FPTR32,  R_386_TLS_DTPMOD32)
+ELF_RELOC(R_386VOS_PC32MSB,     R_386_TLS_DTPOFF32)

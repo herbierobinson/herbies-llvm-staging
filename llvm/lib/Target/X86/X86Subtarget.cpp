@@ -208,6 +208,17 @@ void X86Subtarget::initSubtargetFeatures(StringRef CPU, StringRef FS) {
       FullFS = "+sahf";
   }
 
+  if (isTargetVos()) {
+    // Minimum VOS realease for LLVM is going to be at least 19.1.
+    // That means the minimum hardware will at least have sse4.2 and aes.
+    // Perhaps other features, too, but we can let the code figure out the
+    // full list when we get ported.
+    if (!FullFS.empty())
+      FullFS = "+aes,+sse4.2," + FullFS;
+    else
+      FullFS = "+aes,+sse4.2";
+  }
+
   // Parse features string and set the CPU.
   ParseSubtargetFeatures(CPUName, FullFS);
 
@@ -241,7 +252,7 @@ void X86Subtarget::initSubtargetFeatures(StringRef CPU, StringRef FS) {
   // 32 and 64 bit) and for all 64-bit targets.
   if (StackAlignOverride)
     stackAlignment = StackAlignOverride;
-  else if (isTargetDarwin() || isTargetLinux() || isTargetSolaris() ||
+  else if (isTargetDarwin() || isTargetLinux() || isTargetSolaris() || isTargetVos() ||
            isTargetKFreeBSD() || In64BitMode)
     stackAlignment = 16;
 }

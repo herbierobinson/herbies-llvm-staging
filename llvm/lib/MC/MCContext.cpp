@@ -110,16 +110,16 @@ void MCContext::reset() {
 // Symbol Manipulation
 //===----------------------------------------------------------------------===//
 
-MCSymbol *MCContext::getOrCreateSymbol(const Twine &Name) {
+MCSymbol *MCContext::getOrCreateSymbol(const Twine &Name, bool IsFunction) {
   SmallString<128> NameSV;
   StringRef NameRef = Name.toStringRef(NameSV);
 
   assert(!NameRef.empty() && "Normal symbols cannot be unnamed!");
 
   MCSymbol *&Sym = Symbols[NameRef];
-  if (!Sym)
-    Sym = createSymbol(NameRef, false, false);
-
+  if (!Sym) {
+    Sym = createSymbol(NameRef, false, false, IsFunction);
+  }
   return Sym;
 }
 
@@ -140,13 +140,13 @@ MCSymbol *MCContext::getOrCreateLSDASymbol(StringRef FuncName) {
 }
 
 MCSymbol *MCContext::createSymbolImpl(const StringMapEntry<bool> *Name,
-                                      bool IsTemporary) {
+                                      bool IsTemporary, bool IsFunction) {
   if (MOFI) {
     switch (MOFI->getObjectFileType()) {
     case MCObjectFileInfo::IsCOFF:
       return new (Name, *this) MCSymbolCOFF(Name, IsTemporary);
     case MCObjectFileInfo::IsELF:
-      return new (Name, *this) MCSymbolELF(Name, IsTemporary);
+      return new (Name, *this) MCSymbolELF(Name, IsTemporary, IsFunction);
     case MCObjectFileInfo::IsMachO:
       return new (Name, *this) MCSymbolMachO(Name, IsTemporary);
     }
@@ -156,7 +156,7 @@ MCSymbol *MCContext::createSymbolImpl(const StringMapEntry<bool> *Name,
 }
 
 MCSymbol *MCContext::createSymbol(StringRef Name, bool AlwaysAddSuffix,
-                                  bool CanBeUnnamed) {
+                                  bool CanBeUnnamed, bool IsFunction) {
   if (CanBeUnnamed && !UseNamesOnTempLabels)
     return createSymbolImpl(nullptr, true);
 
@@ -181,7 +181,7 @@ MCSymbol *MCContext::createSymbol(StringRef Name, bool AlwaysAddSuffix,
       NameEntry.first->second = true;
       // Have the MCSymbol object itself refer to the copy of the string that is
       // embedded in the UsedNames entry.
-      return createSymbolImpl(&*NameEntry.first, IsTemporary);
+      return createSymbolImpl(&*NameEntry.first, IsTemporary, IsFunction);
     }
     assert(IsTemporary && "Cannot rename non-temporary symbols");
     AddSuffix = true;

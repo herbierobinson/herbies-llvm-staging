@@ -67,6 +67,7 @@ enum DiagnosticKind {
   DK_OptimizationRemarkAnalysisFPCommute,
   DK_OptimizationRemarkAnalysisAliasing,
   DK_OptimizationFailure,
+  DK_EndianEmulation,
   DK_FirstRemark = DK_OptimizationRemark,
   DK_LastRemark = DK_OptimizationFailure,
   DK_MachineOptimizationRemark,

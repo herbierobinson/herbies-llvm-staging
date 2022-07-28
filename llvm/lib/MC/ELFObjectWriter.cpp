@@ -143,7 +143,8 @@ class ELFObjectWriter : public MCObjectWriter {
 public:
   ELFObjectWriter(MCELFObjectTargetWriter *MOTW, raw_pwrite_stream &OS,
                   bool IsLittleEndian)
-      : MCObjectWriter(OS, IsLittleEndian), TargetObjectWriter(MOTW) {}
+  : MCObjectWriter(OS, IsLittleEndian,
+                   getByteSwapedRelocationsSupported()), TargetObjectWriter(MOTW) {}
 
   void reset() override {
     Renames.clear();

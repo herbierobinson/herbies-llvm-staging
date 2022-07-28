@@ -316,7 +316,7 @@ public:
   const MCSymbol &getSymbol() const { return *Symbol; }
 
   VariantKind getKind() const { return Kind; }
-
+  
   void printVariantKind(raw_ostream &OS) const;
 
   bool hasSubsectionsViaSymbols() const { return HasSubsectionsViaSymbols; }

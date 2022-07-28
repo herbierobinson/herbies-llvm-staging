@@ -106,6 +106,8 @@ protected:
   /// extension and achieve better bitpacking with MSVC.
   unsigned SymbolContents : 2;
 
+  unsigned IsFunction : 1;
+  
   /// The alignment of the symbol, if it is 'common', or -1.
   ///
   /// The alignment is stored as log2(align) + 1.  This allows all values from
@@ -146,11 +148,11 @@ protected: // MCContext creates and uniques these.
     uint64_t AlignmentPadding;
   } NameEntryStorageTy;
 
-  MCSymbol(SymbolKind Kind, const StringMapEntry<bool> *Name, bool isTemporary)
+  MCSymbol(SymbolKind Kind, const StringMapEntry<bool> *Name, bool isTemporary, bool IsFunction = false)
       : IsTemporary(isTemporary), IsRedefinable(false), IsUsed(false),
         IsRegistered(false), IsExternal(false), IsPrivateExtern(false),
         Kind(Kind), IsUsedInReloc(false), SymbolContents(SymContentsUnset),
-        CommonAlignLog2(0), Flags(0) {
+        IsFunction(IsFunction), CommonAlignLog2(0), Flags(0) {
     Offset = 0;
     FragmentAndHasName.setInt(!!Name);
     if (Name)
@@ -214,6 +216,7 @@ public:
 
   /// isTemporary - Check if this is an assembler temporary symbol.
   bool isTemporary() const { return IsTemporary; }
+  bool isFunction() const { return IsFunction; }
 
   /// isUsed - Check if this is used.
   bool isUsed() const { return IsUsed; }

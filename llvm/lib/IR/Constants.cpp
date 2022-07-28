@@ -2217,6 +2217,170 @@ Constant *ConstantExpr::getAShr(Constant *C1, Constant *C2, bool isExact) {
              isExact ? PossiblyExactOperator::IsExact : 0);
 }
 
+// Create a shuffle mask to swap a scalar or vector.
+Constant *
+ConstantExpr::GenerateBswapShuffleMask(const DataLayout *TD, Type *T)
+{
+  uint64_t elementSize = TD->getTypeSizeInBits(T)/8;
+  uint64_t vectorSize = elementSize;
+  std::vector<Constant *> Mask(vectorSize);
+  
+  if (VectorType *VTy = dyn_cast<VectorType>(T))
+    elementSize = TD->getTypeSizeInBits(VTy->getElementType())/8;
+  
+  for (unsigned j = 0, toX = 0; j < vectorSize; j += elementSize)
+  {
+    for (unsigned k = elementSize; k > 0; )
+    {
+      k--;
+      int fromX = j + k;
+      Mask[toX++] = ConstantInt::get(Type::getInt32Ty(T->getContext()), fromX);
+    }
+  }
+  
+  return ConstantVector::get(Mask);
+}
+
+// See if this is a bswap shuffle mask.
+bool
+ConstantExpr::isaBswapShuffleMask(const DataLayout *TD, Type *T, Constant *mask)
+{
+  uint64_t elementSize = TD->getTypeSizeInBits(T)/8;
+  uint64_t vectorSize = elementSize;
+    if (VectorType *VTy = dyn_cast<VectorType>(T))
+      elementSize = TD->getTypeSizeInBits(VTy->getElementType())/8;
+    
+    if (mask->getType()->getVectorNumElements() != vectorSize)
+      return false;
+    
+    for (unsigned j = 0, toX = 0; j < vectorSize; j += elementSize)
+    {
+      for (unsigned k = elementSize; k > 0; )
+      {
+        k--;
+        int fromX = j + k;
+        int elem = ShuffleVectorInst::getMaskValue(mask, toX++);
+        if (elem < 0 || fromX != elem)
+          return false;
+      }
+    }
+    
+    return true;
+  
+  return false;
+}
+
+// The there is no bswap function for ConstantExpr and we also
+// need to support all first class types.
+// First, convert [vectors of] pointers to [vectors of] integers, if necessary.
+// After that, we bitcast the result to a vector of i8s.
+// Next, we emit a shulffle for the vector of i8s.
+// Lastly, we reverse the bitcast and any PtrToInt.
+ Constant *
+ConstantExpr::getBswapOfFirstClassType(const DataLayout *TD, Constant *arg)
+{
+  Type *T = arg->getType();
+  Type *curT = T;
+  Type *ptrT = nullptr, *castT = nullptr, *uncastT = nullptr;
+  Constant *curVal = arg;
+  uint64_t vectorSize = TD->getTypeSizeInBits(curT)/8;
+  
+  if (curT->isPointerTy())
+  {
+    ptrT = curT;
+    curT = TD->getIntPtrType(curT);
+    curVal = ConstantExpr::getPtrToInt(curVal, curT, false);
+  }
+  
+  Type *eT = IntegerType::get(curT->getContext(), 8);
+  castT = VectorType::get(eT, vectorSize);
+  uncastT = curT;
+  
+  curVal = ConstantExpr::getBitCast(curVal, castT, false);
+  
+  curVal = ConstantExpr::getShuffleVector(curVal, UndefValue::get(curT),
+                                          GenerateBswapShuffleMask(TD, T));
+  
+  curVal = ConstantExpr::getBitCast(curVal, uncastT, false);
+  
+  if (ptrT)
+  {
+    curVal = ConstantExpr::getIntToPtr(curVal, ptrT, false);
+  }
+  
+  return curVal;
+}
+
+// MatchBswapFirstClassConstant checks to see if this is a bswap constant
+// and returns the argument if it is; otherwise, it returns nullptr.
+const Constant *
+ConstantExpr::matchBswapOfFirstClassType(const DataLayout *TD,
+                                         const Constant *arg)
+{
+  const ConstantExpr *curVal = dyn_cast<ConstantExpr>(arg);
+  
+  if (!curVal || !TD)
+    return nullptr;
+  
+  Type *T = arg->getType();
+  Type *curT = T;
+  Type *ptrT = nullptr;
+  
+  if (curVal->getOpcode() == Instruction::PtrToInt)
+  {
+    if (!curT->isPointerTy())
+      return nullptr;
+    
+    ptrT = curT;
+    curT = TD->getIntPtrType(curT);
+    
+    curVal = dyn_cast<ConstantExpr>(curVal->getOperand(0));
+    if (!curVal || curT != curVal->getType())
+      return nullptr;
+  }
+  
+  if (curVal->getOpcode() != Instruction::BitCast)
+    return nullptr;
+  
+  Type *uncastT = curT;
+  uint64_t vectorSize = TD->getTypeSizeInBits(curT)/8;
+  Type *eT = IntegerType::get(curT->getContext(), 8);
+  Type *castT = VectorType::get(eT, vectorSize);
+  
+  curVal = dyn_cast<ConstantExpr>(curVal->getOperand(0));
+  if (!curVal || castT != curVal->getType())
+    return nullptr;
+  
+  if (curVal->getOpcode() != Instruction::ShuffleVector)
+    return nullptr;
+  
+  curVal = dyn_cast<ConstantExpr>(curVal->getOperand(0));
+  if (!curVal || castT != curVal->getType())
+    return nullptr;
+  
+  if (!isaBswapShuffleMask(TD, T, curVal->getOperand(2)))
+    return nullptr;
+  
+  if (curVal->getOpcode() != Instruction::BitCast)
+    return nullptr;
+  
+  curVal = dyn_cast<ConstantExpr>(curVal->getOperand(0));
+  if (!curVal || uncastT != curVal->getType())
+    return nullptr;
+  
+  if (!ptrT)
+    return curVal;
+  
+  if (curVal->getOpcode() != Instruction::PtrToInt)
+    return nullptr;
+  
+  curVal = dyn_cast<ConstantExpr>(curVal->getOperand(0));
+  if (!curVal || ptrT != curVal->getType())
+    return nullptr;
+  
+  return curVal;
+}
+
 Constant *ConstantExpr::getBinOpIdentity(unsigned Opcode, Type *Ty) {
   switch (Opcode) {
   default:
@@ -2892,6 +3056,15 @@ Instruction *ConstantExpr::getAsInstruction() {
     return CmpInst::Create((Instruction::OtherOps)getOpcode(),
                            (CmpInst::Predicate)getPredicate(), Ops[0], Ops[1]);
 
+  case Instruction::Call:
+  {
+    Function *F = dyn_cast<Function>(Ops[0]);
+    std::vector<Value *> args;
+    for (unsigned j = 1, e = getNumOperands(); j < e; j++)
+      args.push_back(Ops[j]);
+    return CallInst::Create(F, args);
+  }
+      
   default:
     assert(getNumOperands() == 2 && "Must be binary operator?");
     BinaryOperator *BO =

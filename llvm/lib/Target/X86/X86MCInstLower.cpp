@@ -1426,7 +1426,8 @@ void X86AsmPrinter::EmitInstruction(const MachineInstr *MI) {
 
   case X86::SEH_PushReg:
     assert(MF->hasWinCFI() && "SEH_ instruction in function without WinCFI?");
-    OutStreamer->EmitWinCFIPushReg(RI->getSEHRegNum(MI->getOperand(0).getImm()));
+    OutStreamer->EmitWinCFIPushReg(RI->getSEHRegNum(MI->getOperand(0).getImm()),
+                                   RI->getSEHRegNum(MI->getOperand(1).getImm()));
     return;
 
   case X86::SEH_SaveReg:
@@ -1462,6 +1463,10 @@ void X86AsmPrinter::EmitInstruction(const MachineInstr *MI) {
     OutStreamer->EmitWinCFIEndProlog();
     return;
 
+  case X86::SEH_GotSaveOffset:
+    OutStreamer->EmitWinCFIGotSaveOffset(MI->getOperand(0).getImm());
+    return;
+      
   case X86::SEH_Epilogue: {
     assert(MF->hasWinCFI() && "SEH_ instruction in function without WinCFI?");
     MachineBasicBlock::const_iterator MBBI(MI);
@@ -1479,6 +1484,23 @@ void X86AsmPrinter::EmitInstruction(const MachineInstr *MI) {
     }
     return;
   }
+
+  case X86::SEH_SaveBasePtr:
+    OutStreamer->EmitWinCFISaveBasePtr(RI->getSEHRegNum(MI->getOperand(0).getImm()),
+                                       MI->getOperand(1).getImm(),
+                                       MI->getOperand(2).getImm());
+    return;
+      
+  case X86::SEH_BeginEpilogue:
+    // The VOS unwinder subtracts 1 from return addresses as it unwinds; so,
+    // we don't need to insert noops to get the unwind right.
+    OutStreamer->EmitWinCFIBeginEpilog();
+    return;
+      
+  case X86::SEH_EndEpilogue:
+    OutStreamer->EmitWinCFIEndEpilog();
+    return;
+      
 
   // Lower PSHUFB and VPERMILP normally but add a comment if we can find
   // a constant shuffle mask. We won't be able to do this at the MC layer

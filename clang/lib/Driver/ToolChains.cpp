@@ -3840,6 +3840,39 @@ void NetBSD::addLibStdCxxIncludePaths(const llvm::opt::ArgList &DriverArgs,
                            "", DriverArgs, CC1Args);
 }
 
+  /// VOSToolChain - VOSToolChain tool chain which can call ld(1) directly.
+  /// We could call as directly, however, it's an old version of the GGC
+  /// envorinment and it's best to let GCC untangle the arguments.
+  /// We are defaulting VOS builds to generate ELF directly (hopefully).
+  /// The linker is VOS specific.  GCC knows how to call it, but why have
+  /// a third party in the middle to mess up traslations.
+  
+  VOSToolChain::VOSToolChain(const Driver &D, const llvm::Triple& Triple, const ArgList &Args)
+  : Generic_ELF(D, Triple, Args) {
+    
+    if (getDriver().UseStdLib) {
+      // When targeting a 32-bit platform, try the special directory used on
+      // 64-bit hosts, and only fall back to the main library directory if that
+      // doesn't work.
+      // FIXME: It'd be nicer to test if this directory exists, but I'm not sure
+      // what all logic is needed to emulate the '=' prefix here.
+      // if (Triple.getArch() == llvm::Triple::x86)
+      //   getFilePaths().push_back("=/lib/i386");
+      
+      getFilePaths().push_back("=/lib");
+      
+      // VOS EDIT:  Do we need to add something for libxcc?
+    }
+  }
+  
+  void VOSToolChain::AddClangCXXStdlibIncludeArgs(const ArgList &DriverArgs,
+                                                  ArgStringList &CC1Args) const {
+  }
+  
+  Tool *VOSToolChain::buildLinker() const {
+    return new tools::vosTools::Linker(*this);
+  }
+  
 /// Minix - Minix tool chain which can call as(1) and ld(1) directly.
 
 Minix::Minix(const Driver &D, const llvm::Triple &Triple, const ArgList &Args)

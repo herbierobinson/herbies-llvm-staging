@@ -413,6 +413,10 @@ static void initialize(TargetLibraryInfoImpl &TLI, const Triple &T,
     TLI.setUnavailable(LibFunc_statvfs64);
     TLI.setUnavailable(LibFunc_tmpfile64);
   }
+  
+  if (T.getOS() == Triple::VOS) {
+    // EDIT: Need a list for VOS.
+  }
 
   // As currently implemented in clang, NVPTX code has no standard library to
   // speak of.  Headers provide a standard-ish library implementation, but many

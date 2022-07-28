@@ -1659,7 +1659,8 @@ void CompilerInvocation::setLangDefaults(LangOptions &Opts, InputKind IK,
 
   Opts.AlignedAllocation = Opts.CPlusPlus1z;
 
-  Opts.DollarIdents = !Opts.AsmPreprocessor;
+  Opts.DollarIdents = T.isOSVos() | !Opts.AsmPreprocessor;
+  Opts.DollarIdentsPervasive = T.isOSVos();
 }
 
 /// Attempt to parse a visibility value out of the given argument.

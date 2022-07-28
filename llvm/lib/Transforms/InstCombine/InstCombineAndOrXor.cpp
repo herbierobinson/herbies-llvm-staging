@@ -1283,6 +1283,9 @@ Instruction *InstCombiner::visitAnd(BinaryOperator &I) {
   if (Value *V = SimplifyBSwap(I))
     return replaceInstUsesWith(I, V);
 
+  if (Instruction *I2 = CombineLogicalBswaps(Instruction::And, I))
+    return I2;
+  
   if (ConstantInt *AndRHS = dyn_cast<ConstantInt>(Op1)) {
     const APInt &AndRHSMask = AndRHS->getValue();
 
@@ -2126,6 +2129,9 @@ Instruction *InstCombiner::visitOr(BinaryOperator &I) {
   if (Value *V = SimplifyBSwap(I))
     return replaceInstUsesWith(I, V);
 
+  if (Instruction *I2 = CombineLogicalBswaps(Instruction::Or, I))
+    return I2;
+  
   if (ConstantInt *RHS = dyn_cast<ConstantInt>(Op1)) {
     ConstantInt *C1 = nullptr; Value *X = nullptr;
     // (X & C1) | C2 --> (X | C2) & (C1|C2)
@@ -2480,6 +2486,9 @@ Instruction *InstCombiner::visitXor(BinaryOperator &I) {
   if (Value *V = SimplifyBSwap(I))
     return replaceInstUsesWith(I, V);
 
+  if (Instruction *I2 = CombineLogicalBswaps(Instruction::Xor, I))
+    return I2;
+    
   // Is this a ~ operation?
   if (Value *NotOp = dyn_castNotVal(&I)) {
     if (BinaryOperator *Op0I = dyn_cast<BinaryOperator>(NotOp)) {

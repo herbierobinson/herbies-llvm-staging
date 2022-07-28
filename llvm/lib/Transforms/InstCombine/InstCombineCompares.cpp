@@ -4259,6 +4259,15 @@ Instruction *InstCombiner::visitICmpInst(ICmpInst &I) {
           SimplifyICmpInst(I.getPredicate(), Op0, Op1, DL, &TLI, &DT, &AC, &I))
     return replaceInstUsesWith(I, V);
 
+  // Compares for equal and not equal don't care if whether both arguments
+  // are bswapped or not.  We can optimize that case.
+  if (I.getPredicate() == ICmpInst::ICMP_EQ ||
+        I.getPredicate() == ICmpInst::ICMP_NE)
+  {
+    if (Instruction *I2 = CombineLogicalBswaps(Instruction::ICmp, I))
+      return I2;
+  }
+  
   // comparing -val or val with non-zero is the same as just comparing val
   // ie, abs(val) != 0 -> val != 0
   if (I.getPredicate() == ICmpInst::ICMP_NE && match(Op1, m_Zero())) {

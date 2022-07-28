@@ -568,6 +568,25 @@ public:
 };
 } // end namespace netbsd
 
+  /// vosTools -- Directly call linker.
+namespace vosTools {
+class LLVM_LIBRARY_VISIBILITY Linker : public Tool  {
+  
+public:
+  Linker(const ToolChain &TC)
+  : Tool("StratusVOS::Linker", "linker", TC) {}
+  
+  bool hasIntegratedCPP() const override { return false; }
+  bool isLinkJob() const override { return true; }
+  
+  void ConstructJob(Compilation &C, const JobAction &JA,
+                    const InputInfo &Output,
+                    const InputInfoList &Inputs,
+                    const llvm::opt::ArgList &TCArgs,
+                    const char *LinkingOutput) const override;
+};
+} // end namespace vosTools
+  
 /// Directly call GNU Binutils' assembler and linker.
 namespace gnutools {
 class LLVM_LIBRARY_VISIBILITY Assembler : public GnuTool {

@@ -1884,6 +1884,7 @@ bool X86_32TargetCodeGenInfo::isStructReturnInRegABI(
   case llvm::Triple::OpenBSD:
   case llvm::Triple::Bitrig:
   case llvm::Triple::Win32:
+  case llvm::Triple::VOS:
     return true;
   default:
     return false;

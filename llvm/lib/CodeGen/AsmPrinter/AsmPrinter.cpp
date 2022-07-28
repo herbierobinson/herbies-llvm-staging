@@ -29,6 +29,7 @@
 #include "llvm/CodeGen/MachineModuleInfoImpls.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/DebugInfo.h"
+#include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/Mangler.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Operator.h"
@@ -1997,7 +1998,7 @@ static void emitGlobalConstantDataSequential(const DataLayout &DL,
         AP.OutStreamer->GetCommentOS() << format("0x%" PRIx64 "\n",
                                                  CDS->getElementAsInteger(i));
       AP.OutStreamer->EmitIntValue(CDS->getElementAsInteger(i),
-                                   ElementByteSize);
+                                   ElementByteSize, true);
     }
   } else {
     for (unsigned I = 0, E = CDS->getNumElements(); I != E; ++I)
@@ -2096,21 +2097,22 @@ static void emitGlobalConstantFP(const ConstantFP *CFP, AsmPrinter &AP) {
 
   // PPC's long double has odd notions of endianness compared to how LLVM
   // handles it: p[0] goes first for *big* endian on PPC.
-  if (AP.getDataLayout().isBigEndian() && !CFP->getType()->isPPC_FP128Ty()) {
+  if ((!AP.OutStreamer->GetCurrentLittleEndian()) &&
+      !CFP->getType()->isPPC_FP128Ty()) {
     int Chunk = API.getNumWords() - 1;
 
     if (TrailingBytes)
-      AP.OutStreamer->EmitIntValue(p[Chunk--], TrailingBytes);
+      AP.OutStreamer->EmitIntValue(p[Chunk--], TrailingBytes, true);
 
     for (; Chunk >= 0; --Chunk)
-      AP.OutStreamer->EmitIntValue(p[Chunk], sizeof(uint64_t));
+      AP.OutStreamer->EmitIntValue(p[Chunk], sizeof(uint64_t), true);
   } else {
     unsigned Chunk;
     for (Chunk = 0; Chunk < NumBytes / sizeof(uint64_t); ++Chunk)
-      AP.OutStreamer->EmitIntValue(p[Chunk], sizeof(uint64_t));
+      AP.OutStreamer->EmitIntValue(p[Chunk], sizeof(uint64_t), true);
 
     if (TrailingBytes)
-      AP.OutStreamer->EmitIntValue(p[Chunk], TrailingBytes);
+      AP.OutStreamer->EmitIntValue(p[Chunk], TrailingBytes, true);
   }
 
   // Emit the tail padding for the long double.
@@ -2120,7 +2122,6 @@ static void emitGlobalConstantFP(const ConstantFP *CFP, AsmPrinter &AP) {
 }
 
 static void emitGlobalConstantLargeInt(const ConstantInt *CI, AsmPrinter &AP) {
-  const DataLayout &DL = AP.getDataLayout();
   unsigned BitWidth = CI->getBitWidth();
 
   // Copy the value as we may massage the layout for constants whose bit width
@@ -2128,6 +2129,7 @@ static void emitGlobalConstantLargeInt(const ConstantInt *CI, AsmPrinter &AP) {
   APInt Realigned(CI->getValue());
   uint64_t ExtraBits = 0;
   unsigned ExtraBitsSize = BitWidth & 63;
+  bool isBigEndian = !AP.OutStreamer->GetCurrentLittleEndian();
 
   if (ExtraBitsSize) {
     // The bit width of the data is not a multiple of 64-bits.
@@ -2137,7 +2139,7 @@ static void emitGlobalConstantLargeInt(const ConstantInt *CI, AsmPrinter &AP) {
     // Big endian:
     // * Record the extra bits to emit.
     // * Realign the raw data to emit the chunks of 64-bits.
-    if (DL.isBigEndian()) {
+    if (isBigEndian) {
       // Basically the structure of the raw data is a chunk of 64-bits cells:
       //    0        1         BitWidth / 64
       // [chunk1][chunk2] ... [chunkN].
@@ -2158,7 +2160,7 @@ static void emitGlobalConstantLargeInt(const ConstantInt *CI, AsmPrinter &AP) {
   // quantities at a time.
   const uint64_t *RawData = Realigned.getRawData();
   for (unsigned i = 0, e = BitWidth / 64; i != e; ++i) {
-    uint64_t Val = DL.isBigEndian() ? RawData[e - i - 1] : RawData[i];
+    uint64_t Val = isBigEndian ? RawData[e - i - 1] : RawData[i];
     AP.OutStreamer->EmitIntValue(Val, 8);
   }
 
@@ -2292,7 +2294,7 @@ static void emitGlobalConstantImpl(const DataLayout &DL, const Constant *CV,
       if (AP.isVerbose())
         AP.OutStreamer->GetCommentOS() << format("0x%" PRIx64 "\n",
                                                  CI->getZExtValue());
-      AP.OutStreamer->EmitIntValue(CI->getZExtValue(), Size);
+      AP.OutStreamer->EmitIntValue(CI->getZExtValue(), Size, true);
       return;
     default:
       emitGlobalConstantLargeInt(CI, AP);
@@ -2336,6 +2338,18 @@ static void emitGlobalConstantImpl(const DataLayout &DL, const Constant *CV,
   if (const ConstantVector *V = dyn_cast<ConstantVector>(CV))
     return emitGlobalConstantVector(DL, V, AP);
 
+  // ConstantExprs for initialization get evaluated into MCExprs by lowerConsant;
+  // however, MCExprs can only be ints (aka pointers at this level.
+  // We must handle bswap of pointer and floating point values here.
+  // It's also more readable to handle bswap of integer values using the
+  // assmebly language pseudo-ops; so, handle all bswaps this way.
+  if (const Constant *BSV = ConstantExpr::matchBswapOfFirstClassType(&DL, CV)) {
+    // Emit an endian pseudo-op, emit the contant and revert the endian pseudo-op.
+    AP.OutStreamer->PushEndian(!AP.OutStreamer->GetCurrentLittleEndian());
+    return emitGlobalConstantImpl(DL, BSV, AP);
+    AP.OutStreamer->PopEndian();
+  }
+
   // Otherwise, it must be a ConstantExpr.  Lower it to an MCExpr, then emit it
   // thread the streamer with EmitValue.
   const MCExpr *ME = AP.lowerConstant(CV);
@@ -2346,7 +2360,7 @@ static void emitGlobalConstantImpl(const DataLayout &DL, const Constant *CV,
   if (AP.getObjFileLowering().supportIndirectSymViaGOTPCRel())
     handleIndirectSymViaGOTPCRel(AP, &ME, BaseCV, Offset);
 
-  AP.OutStreamer->EmitValue(ME, Size);
+  AP.OutStreamer->EmitValue(ME, Size, SMLoc(), true);
 }
 
 /// EmitGlobalConstant - Print a general LLVM constant to the .s file.

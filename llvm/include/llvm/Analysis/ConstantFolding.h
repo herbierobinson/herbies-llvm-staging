@@ -117,10 +117,14 @@ Constant *ConstantFoldLoadThroughGEPConstantExpr(Constant *C, ConstantExpr *CE);
 Constant *ConstantFoldLoadThroughGEPIndices(Constant *C,
                                             ArrayRef<Constant *> Indices);
 
-/// canConstantFoldCallTo - Return true if its even possible to fold a call to
-/// the specified function.
-bool canConstantFoldCallTo(const Function *F);
-
+  /// canConstantFoldCallTo - Return true if its even possible to fold a call to
+  /// the specified function.
+  bool canConstantFoldCallTo(const Function *F);
+  
+  /// canConstantFoldIntrinsic - Return true if its even possible to fold a call to
+  /// the specified intrinsic function.
+  bool canConstantFoldIntrinsic(unsigned IID);
+  
 /// ConstantFoldCall - Attempt to constant fold a call to the specified function
 /// with the specified arguments, returning null if unsuccessful.
 Constant *ConstantFoldCall(Function *F, ArrayRef<Constant *> Operands,

@@ -38,6 +38,7 @@ class MCObjectStreamer : public MCStreamer {
   MCSection::iterator CurInsertionPoint;
   bool EmitEHFrame;
   bool EmitDebugFrame;
+  bool ByteSwapedRelocationsSupported;
   SmallVector<MCSymbol *, 2> PendingLabels;
 
   virtual void EmitInstToData(const MCInst &Inst, const MCSubtargetInfo&) = 0;
@@ -81,6 +82,9 @@ protected:
   /// will be used as a symbol offset within the fragment.
   void flushPendingLabels(MCFragment *F, uint64_t FOffset = 0);
 
+  void EmitValueImplCommon(const MCExpr *Value, unsigned Size,
+                           SMLoc Loc, bool UseCurrentEndian);
+
 public:
   void visitUsedSymbol(const MCSymbol &Sym) override;
 
@@ -88,10 +92,11 @@ public:
 
   /// \name MCStreamer Interface
   /// @{
-
   void EmitLabel(MCSymbol *Symbol) override;
   void EmitAssignment(MCSymbol *Symbol, const MCExpr *Value) override;
   void EmitValueImpl(const MCExpr *Value, unsigned Size,
+                     SMLoc Loc = SMLoc()) override;
+  void EmitValueSwappedImpl(const MCExpr *Value, unsigned Size,
                      SMLoc Loc = SMLoc()) override;
   void EmitULEB128Value(const MCExpr *Value) override;
   void EmitSLEB128Value(const MCExpr *Value) override;

@@ -799,6 +799,9 @@ def CC_X86_32_C : CallingConv<[
   // Promote i1/i8/i16 arguments to i32.
   CCIfType<[i1, i8, i16], CCPromoteToType<i32>>,
 
+  // The 'sret' parameter for VOS, if any, is always passed in EAX.
+  CCIfSRet<CCIfSubtarget<"isTargetVos()", CCAssignToReg<[EAX]>>>,
+
   // The 'nest' parameter, if any, is passed in ECX.
   CCIfNest<CCAssignToReg<[ECX]>>,
 

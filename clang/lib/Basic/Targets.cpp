@@ -569,6 +569,31 @@ public:
   }
 };
 
+// VOS target
+template<typename Target>
+class VOSTargetInfo : public OSTargetInfo<Target> {
+protected:
+  void getOSDefines(const LangOptions &Opts, const llvm::Triple &Triple,
+                    MacroBuilder &Builder) const override {
+    // VOS defines
+    DefineStd(Builder, "VOS", Opts);
+    Builder.defineMacro("__ELF__");
+    if (Opts.POSIXThreads)
+      Builder.defineMacro("_REENTRANT");
+//    if (Opts.CPlusPlus)
+//      Builder.defineMacro("_GNU_SOURCE");
+  }
+public:
+  VOSTargetInfo(const llvm::Triple &Triple, const TargetOptions &Opts)
+  : OSTargetInfo<Target>(Triple, Opts) {
+    this->MCountName = "mcount";
+   }
+  
+//  virtual const char *getStaticInitSectionSpecifier() const override {
+//           return ".text.startup";
+//  }
+};
+  
 // Bitrig Target
 template<typename Target>
 class BitrigTargetInfo : public OSTargetInfo<Target> {
@@ -4315,6 +4340,28 @@ public:
   }
 };
 
+// x86-32 VOS target
+class VOSXI386TargetInfo : public VOSTargetInfo<X86_32TargetInfo> {
+public:
+  VOSXI386TargetInfo(const llvm::Triple &Triple, const TargetOptions &Opts)
+  : VOSTargetInfo<X86_32TargetInfo>(Triple, Opts) {
+    TLSSupported = false;
+    //     WCharType = UnsignedShort;
+    // EDIT:  Review against all the defaults.
+    SizeType = UnsignedLong;
+    IntPtrType = UnsignedLong;
+    PtrDiffType = UnsignedLong;
+    ProcessIDType = SignedLong;
+    DoubleAlign = LongLongAlign = 64;
+    LongDoubleAlign = 128;
+    resetDataLayout("e-m:e-p:32:32:32-i64:64:64-f80:128:128-n8:16:32-S128");
+  }
+  //    virtual void getTargetDefines(const LangOptions &Opts,
+  //                                  MacroBuilder &Builder) const {
+  //      VOSTargetInfo<X86_32TargetInfo>::getTargetDefines(Opts, Builder);
+  //    }
+};
+        
 class BitrigI386TargetInfo : public BitrigTargetInfo<X86_32TargetInfo> {
 public:
   BitrigI386TargetInfo(const llvm::Triple &Triple, const TargetOptions &Opts)
@@ -4791,6 +4838,32 @@ public:
     IntMaxType = SignedLongLong;
     Int64Type = SignedLongLong;
   }
+};
+
+// x86-64 VOS target
+class VOSX86_64TargetInfo : public VOSTargetInfo<X86_64TargetInfo> {
+public:
+  VOSX86_64TargetInfo(const llvm::Triple &Triple, const TargetOptions &Opts)
+  : VOSTargetInfo<X86_64TargetInfo>(Triple, Opts) {
+    TLSSupported = false;
+    //     WCharType = UnsignedShort;
+    // EDIT:  Review against all the defaults.
+    // These are the options we are going to want for the kernel.
+    // Maybe not for user mode.
+    DoubleAlign = LongLongAlign = 64;
+    LongWidth = LongAlign = 32;
+    SizeType = UnsignedLongLong;
+    PtrDiffType = UnsignedLongLong;
+    IntPtrType = UnsignedLongLong;
+    IntMaxType = SignedLongLong;
+    Int64Type = SignedLongLong;
+    ProcessIDType = SignedLong;
+    resetDataLayout("e-m:e-i64:64:64-f80:128:128-n8:16:32:64-S128");
+  }
+  //    virtual void getTargetDefines(const LangOptions &Opts,
+  //                                  MacroBuilder &Builder) const {
+  //      VOSTargetInfo<X86_32TargetInfo>::getTargetDefines(Opts, Builder);
+  //    }
 };
 
 class BitrigX86_64TargetInfo : public BitrigTargetInfo<X86_64TargetInfo> {
@@ -8901,6 +8974,9 @@ static TargetInfo *AllocateTarget(const llvm::Triple &Triple,
       return new NaClTargetInfo<X86_32TargetInfo>(Triple, Opts);
     case llvm::Triple::ELFIAMCU:
       return new MCUX86_32TargetInfo(Triple, Opts);
+    case llvm::Triple::VOS:
+      // return new VOSTargetInfo<X86_32TargetInfo>(Triple, Opts);
+      return new VOSXI386TargetInfo(Triple, Opts);
     default:
       return new X86_32TargetInfo(Triple, Opts);
     }
@@ -8951,6 +9027,9 @@ static TargetInfo *AllocateTarget(const llvm::Triple &Triple,
       return new HaikuTargetInfo<X86_64TargetInfo>(Triple, Opts);
     case llvm::Triple::NaCl:
       return new NaClTargetInfo<X86_64TargetInfo>(Triple, Opts);
+    case llvm::Triple::VOS:
+      // return new VOSTargetInfo<X86_64TargetInfo>(Triple, Opts);
+      return new VOSX86_64TargetInfo(Triple, Opts);
     case llvm::Triple::PS4:
       return new PS4OSTargetInfo<X86_64TargetInfo>(Triple, Opts);
     default:

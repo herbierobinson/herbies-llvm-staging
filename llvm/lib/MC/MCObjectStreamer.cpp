@@ -31,7 +31,11 @@ MCObjectStreamer::MCObjectStreamer(MCContext &Context, MCAsmBackend &TAB,
     : MCStreamer(Context),
       Assembler(new MCAssembler(Context, TAB, *Emitter_,
                                 *TAB.createObjectWriter(OS))),
-      EmitEHFrame(true), EmitDebugFrame(false) {}
+      EmitEHFrame(true), EmitDebugFrame(false) {
+
+  ByteSwapedRelocationsSupported =
+        Assembler->getWriter().getByteSwapedRelocationsSupported();
+}
 
 MCObjectStreamer::~MCObjectStreamer() {
   delete &Assembler->getBackend();
@@ -121,8 +125,10 @@ void MCObjectStreamer::EmitCFISections(bool EH, bool Debug) {
   EmitDebugFrame = Debug;
 }
 
-void MCObjectStreamer::EmitValueImpl(const MCExpr *Value, unsigned Size,
-                                     SMLoc Loc) {
+void MCObjectStreamer::EmitValueImplCommon(const MCExpr *Value,
+                                           unsigned Size,
+                                           SMLoc Loc,
+                                           bool UseCurrentEndian) {
   MCStreamer::EmitValueImpl(Value, Size, Loc);
   MCDataFragment *DF = getOrCreateDataFragment();
   flushPendingLabels(DF, DF->getContents().size());
@@ -133,13 +139,29 @@ void MCObjectStreamer::EmitValueImpl(const MCExpr *Value, unsigned Size,
   // Avoid fixups when possible.
   int64_t AbsValue;
   if (Value->evaluateAsAbsolute(AbsValue, getAssembler())) {
-    EmitIntValue(AbsValue, Size);
+    EmitIntValue(AbsValue, Size, UseCurrentEndian);
     return;
   }
-  DF->getFixups().push_back(
+  bool swap = UseCurrentEndian
+                  && GetCurrentLittleEndian() != GetNativeLittleEndian();
+  if (swap && !ByteSwapedRelocationsSupported) {
+    report_fatal_error("unsupported directive in streamer");
+  }
+  else {
+    DF->getFixups().push_back(
       MCFixup::create(DF->getContents().size(), Value,
-                      MCFixup::getKindForSize(Size, false), Loc));
+                      MCFixup::getKindForSize(Size, false), Loc, swap));
+  }
   DF->getContents().resize(DF->getContents().size() + Size, 0);
+}
+void MCObjectStreamer::EmitValueImpl(const MCExpr *Value, unsigned Size,
+                                     SMLoc Loc) {
+  EmitValueImplCommon(Value, Size, Loc, false);
+}
+void MCObjectStreamer::EmitValueSwappedImpl(const MCExpr *Value,
+                                            unsigned Size,
+                                            SMLoc Loc) {
+  EmitValueImplCommon(Value, Size, Loc, true);
 }
 
 void MCObjectStreamer::EmitCFIStartProcImpl(MCDwarfFrameInfo &Frame) {

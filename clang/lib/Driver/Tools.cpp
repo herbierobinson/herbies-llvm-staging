@@ -2090,6 +2090,7 @@ static const char *getX86TargetCPU(const ArgList &Args,
   case llvm::Triple::Haiku:
     return "i586";
   case llvm::Triple::Bitrig:
+  case llvm::Triple::VOS:
     return "i686";
   default:
     // Fallback to p4.
@@ -9787,6 +9788,63 @@ void netbsd::Linker::ConstructJob(Compilation &C, const JobAction &JA,
   getToolChain().addProfileRTLibs(Args, CmdArgs);
 
   const char *Exec = Args.MakeArgString(getToolChain().GetLinkerPath());
+  C.addCommand(llvm::make_unique<Command>(JA, *this, Exec, CmdArgs, Inputs));
+}
+
+void vosTools::Linker::ConstructJob(Compilation &C, const JobAction &JA,
+                                const InputInfo &Output,
+                                const InputInfoList &Inputs,
+                                const ArgList &Args,
+                                const char *LinkingOutput) const {
+  const ToolChain &ToolChain = getToolChain();
+  const Driver &D = ToolChain.getDriver();
+  ArgStringList CmdArgs;
+  
+  if (!D.SysRoot.empty())
+    CmdArgs.push_back(Args.MakeArgString("--sysroot=" + D.SysRoot));
+  
+  if (Args.hasArg(options::OPT_static)) {
+    CmdArgs.push_back("-Bstatic");
+  } else {
+    if (Args.hasArg(options::OPT_rdynamic))
+      CmdArgs.push_back("-export-dynamic");
+    CmdArgs.push_back("-Bshareable");
+   }
+  
+  if (Output.isFilename()) {
+    CmdArgs.push_back("-pm_name");
+    CmdArgs.push_back(Output.getFilename());
+  } else {
+    assert(Output.isNothing() && "Invalid output.");
+  }
+  
+  if (!Args.hasArg(options::OPT_nostdlib) &&
+      !Args.hasArg(options::OPT_nostartfiles)) {
+    CmdArgs.push_back("-define_main");
+  }
+
+// I believe we only need to explicitly add arguments that aren't specifically
+// designated as linker input.  We should add the full list for VOS linker arguments
+// to Options.tb at some point in time.
+//  Args.AddAllArgs(CmdArgs, options::OPT_L);
+  
+  AddLinkerInputs(ToolChain, Inputs, Args, CmdArgs, JA);
+  
+  if (!Args.hasArg(options::OPT_nostdlib) &&
+      !Args.hasArg(options::OPT_nodefaultlibs)) {
+    if (D.CCCIsCXX()) {
+      getToolChain().AddCXXStdlibLibArgs(Args, CmdArgs);
+//      CmdArgs.push_back("-lm");
+    }
+    if (Args.hasArg(options::OPT_pthread))
+      CmdArgs.push_back("-lpthread");
+    CmdArgs.push_back("-L/system/posix_object_library");
+    CmdArgs.push_back("-L/system/c_object_library");
+  }
+  
+  ToolChain.addProfileRTLibs(Args, CmdArgs);
+  
+  const char *Exec = Args.MakeArgString(ToolChain.GetProgramPath("bind.pm"));
   C.addCommand(llvm::make_unique<Command>(JA, *this, Exec, CmdArgs, Inputs));
 }
 

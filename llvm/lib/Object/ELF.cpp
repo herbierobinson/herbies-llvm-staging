@@ -16,7 +16,8 @@ namespace object {
   case ELF::name:                                                       \
     return #name;                                                       \
 
-StringRef getELFRelocationTypeName(uint32_t Machine, uint32_t Type) {
+  StringRef getELFRelocationTypeName(uint32_t Machine, uint32_t Type,
+                                     unsigned char OSABI) {
   switch (Machine) {
   case ELF::EM_X86_64:
     switch (Type) {
@@ -26,6 +27,15 @@ StringRef getELFRelocationTypeName(uint32_t Machine, uint32_t Type) {
     }
     break;
   case ELF::EM_386:
+    if (OSABI == ELF::ELFOSABI_OPENVOS)
+    {
+      switch (Type) {
+#include "llvm/Support/ELFRelocs/i386_vos.def"
+        default:
+          break;
+      }
+    }
+    // Drop through...
   case ELF::EM_IAMCU:
     switch (Type) {
 #include "llvm/Support/ELFRelocs/i386.def"

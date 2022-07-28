@@ -66,6 +66,9 @@ static StringRef getUnwindCodeTypeName(uint8_t Code) {
   case UOP_SaveXMM128: return "SAVE_XMM128";
   case UOP_SaveXMM128Big: return "SAVE_XMM128_FAR";
   case UOP_PushMachFrame: return "PUSH_MACHFRAME";
+  case UOP_SaveBasePtr: return "SAVE_BASE_PTR";
+  case UOP_BeginEpilog: return "BEGIN_EPILOG";
+  case UOP_EndEpilog: return "END_EPILOG";
   }
 }
 
@@ -109,6 +112,12 @@ static unsigned getNumUsedSlots(const UnwindCode &UnwindCode) {
     return 3;
   case UOP_AllocLarge:
     return (UnwindCode.getOpInfo() == 0) ? 2 : 3;
+  case UOP_SaveBasePtr:
+    return 0;
+  case UOP_BeginEpilog:
+    return 0;
+  case UOP_EndEpilog:
+    return 0;
   }
 }
 
@@ -228,6 +237,14 @@ void Dumper::printUnwindCode(const UnwindInfo& UI, ArrayRef<UnwindCode> UC) {
 
   case UOP_PushMachFrame:
     OS << " errcode=" << (UC[0].getOpInfo() == 0 ? "no" : "yes");
+    break;
+  case UOP_SaveBasePtr:
+      OS << " reg=" << getUnwindRegisterName(UC[0].getOpInfo())
+      << format(", offset=0x%X", UC[1].FrameOffset * 1);
+      break;
+  case UOP_BeginEpilog:
+    break;
+  case UOP_EndEpilog:
     break;
   }
 

@@ -33,7 +33,10 @@ enum UnwindOpcodes {
   UOP_SaveNonVolBig,
   UOP_SaveXMM128 = 8,
   UOP_SaveXMM128Big,
-  UOP_PushMachFrame
+  UOP_PushMachFrame,
+  UOP_SaveBasePtr,
+  UOP_BeginEpilog,
+  UOP_EndEpilog
 };
 
 /// UnwindCode - This union describes a single operation in a function prolog,

@@ -21,17 +21,13 @@ public:
                      raw_pwrite_stream &OS)
       : MCWinCOFFStreamer(C, AB, *CE, OS) {}
 
-  void EmitWinEHHandlerData() override;
+  virtual SEHUnwindEmitter *getSEHUnwindEmitter() override;
   void EmitWindowsUnwindTables() override;
   void FinishImpl() override;
 };
 
-void X86WinCOFFStreamer::EmitWinEHHandlerData() {
-  MCStreamer::EmitWinEHHandlerData();
-
-  // We have to emit the unwind info now, because this directive
-  // actually switches to the .xdata section!
-  EHStreamer.EmitUnwindInfo(*this, getCurrentWinFrameInfo());
+SEHUnwindEmitter *X86WinCOFFStreamer::getSEHUnwindEmitter() {
+    return &EHStreamer;
 }
 
 void X86WinCOFFStreamer::EmitWindowsUnwindTables() {

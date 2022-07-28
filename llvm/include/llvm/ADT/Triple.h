@@ -135,6 +135,7 @@ public:
     ImaginationTechnologies,
     MipsTechnologies,
     NVIDIA,
+    Stratus,
     CSR,
     Myriad,
     AMD,
@@ -168,6 +169,7 @@ public:
     CUDA,       // NVIDIA CUDA
     NVCL,       // NVIDIA OpenCL
     AMDHSA,     // AMD HSA Runtime
+    VOS,
     PS4,
     ELFIAMCU,
     TvOS,       // Apple tvOS
@@ -552,6 +554,18 @@ public:
     return getOS() == Triple::Linux;
   }
 
+  /// \brief Tests whether the OS is VOS.
+  bool isOSVos() const {
+    return getOS() == Triple::VOS;
+  }
+  /// \brief Tests whether the OS is 32 bit VOS.
+  /// VOS deviates from the standard ABI in some areas on
+  /// ia32 for legacy reasons...
+  bool isOSVosIa32() const {
+    return getOS() == Triple::VOS && getArch() == Triple::x86;
+  }
+  
+  /// \brief Tests whether the OS uses the ELF binary format.
   /// Tests whether the OS is kFreeBSD.
   bool isOSKFreeBSD() const {
     return getOS() == Triple::KFreeBSD;

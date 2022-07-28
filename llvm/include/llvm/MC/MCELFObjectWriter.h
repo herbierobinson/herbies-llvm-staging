@@ -56,12 +56,14 @@ class MCELFObjectTargetWriter {
   const unsigned HasRelocationAddend : 1;
   const unsigned Is64Bit : 1;
   const unsigned IsN64 : 1;
+  const unsigned ByteSwapedRelocationsSupported : 1;
 
 protected:
 
   MCELFObjectTargetWriter(bool Is64Bit_, uint8_t OSABI_,
                           uint16_t EMachine_,  bool HasRelocationAddend,
-                          bool IsN64=false);
+                          bool IsN64=false,
+                          bool ByteSwapedRelocationsSupported = false);
 
 public:
   static uint8_t getOSABI(Triple::OSType OSType) {
@@ -71,6 +73,8 @@ public:
       case Triple::PS4:
       case Triple::FreeBSD:
         return ELF::ELFOSABI_FREEBSD;
+      case Triple::VOS:
+        return ELF::ELFOSABI_OPENVOS;
       default:
         return ELF::ELFOSABI_NONE;
     }
@@ -133,6 +137,9 @@ public:
   }
   unsigned setRSsym(unsigned Value, unsigned Type) const {
     return (Type & R_SSYM_MASK) | ((Value & 0xff) << R_SSYM_SHIFT);
+  }
+  bool getByteSwapedRelocationsSupported() {
+    return ByteSwapedRelocationsSupported;
   }
 };
 

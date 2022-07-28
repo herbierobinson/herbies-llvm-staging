@@ -20,7 +20,6 @@
 #include "llvm/MC/MCDwarf.h"
 #include "llvm/MC/MCLinkerOptimizationHint.h"
 #include "llvm/MC/MCSymbol.h"
-#include "llvm/MC/MCWinEH.h"
 #include "llvm/Support/DataTypes.h"
 #include "llvm/Support/SMLoc.h"
 #include <string>
@@ -42,6 +41,7 @@ class Twine;
 class raw_ostream;
 class formatted_raw_ostream;
 class AssemblerConstantPools;
+class Function;
 
 typedef std::pair<MCSection *, const MCExpr *> MCSectionSubPair;
 
@@ -148,6 +148,61 @@ private:
   std::unique_ptr<AssemblerConstantPools> ConstantPools;
 };
 
+class SEHFrameInfo {
+
+public:
+  const MCSymbol *Begin = nullptr;
+  const MCSymbol *End = nullptr;
+  const MCSymbol *Function = nullptr;
+  MCSymbol *Symbol = nullptr;
+  
+  SEHFrameInfo() {}
+  virtual ~SEHFrameInfo();
+
+  virtual void EmitWinCFIStartProc(const MCSymbol *Symbol,
+                                   const class Function *F = nullptr,
+                                   const StringRef Name = "",
+                                   int32_t NArgs = -2, bool isSubroutine = false,
+                                   bool isFunction = false) = 0;
+  virtual void EmitWinCFIEndProc() = 0;
+  virtual void EmitWinCFIStartChained() = 0;
+  virtual SEHFrameInfo *EmitWinCFIEndChained() = 0;
+  virtual void EmitWinCFIPushReg(unsigned Register, bool isFrameptr = false) = 0;
+  virtual void EmitWinCFISetFrame(unsigned Register, unsigned Offset) = 0;
+  virtual void EmitWinCFIAllocStack(unsigned Size) = 0;
+  virtual void EmitWinCFISaveReg(unsigned Register, unsigned Offset) = 0;
+  virtual void EmitWinCFISaveXMM(unsigned Register, unsigned Offset) = 0;
+  virtual void EmitWinCFIPushFrame(bool Code) = 0;
+  virtual void EmitWinCFIEndProlog() = 0;
+  virtual void EmitWinCFIGotSaveOffset(unsigned Offset) = 0;
+  virtual void EmitWinCFISaveBasePtr(unsigned Register, unsigned FrameOffset,
+                                     unsigned FrameEndSize = 0) = 0;
+  virtual void EmitWinCFIBeginEpilog() = 0;
+  virtual void EmitWinCFIEndEpilog() = 0;
+
+  virtual void EmitWinEHHandler(const MCSymbol *Sym, bool Unwind,
+                                bool Except) = 0;
+  virtual void EmitWinEHHandlerTable(const MCSymbol *Table);
+  virtual void EmitWinEHHandlerData() = 0;
+
+  virtual void EmitUnwindInfo() = 0;
+
+  virtual bool isValidWinFrameInfo() = 0;
+  virtual SEHFrameInfo *GetChainedParent() = 0;
+};
+  
+class SEHUnwindEmitter {
+public:
+  virtual ~SEHUnwindEmitter();
+
+  virtual SEHFrameInfo *createSEHFrameInfo(MCStreamer *Streamer,
+                                           SEHFrameInfo *PrevFrame = nullptr);
+  
+  /// This emits the unwind info sections (.pdata and .xdata in PE/COFF).
+  virtual void Emit(MCStreamer &Streamer);
+};
+
+ 
 /// \brief Streaming machine code generation interface.
 ///
 /// This interface is intended to provide a programatic interface that is very
@@ -169,11 +224,10 @@ class MCStreamer {
   MCDwarfFrameInfo *getCurrentDwarfFrameInfo();
   void EnsureValidDwarfFrame();
 
-  MCSymbol *EmitCFILabel();
   MCSymbol *EmitCFICommon();
 
-  std::vector<WinEH::FrameInfo *> WinFrameInfos;
-  WinEH::FrameInfo *CurrentWinFrameInfo;
+  std::vector<SEHFrameInfo *> WinFrameInfos;
+  SEHFrameInfo *CurrentWinFrameInfo;
   void EnsureValidWinFrameInfo();
 
   /// \brief Tracks an index to represent the order a symbol was emitted in.
@@ -190,13 +244,17 @@ class MCStreamer {
   /// requires.
   unsigned NextWinCFIID = 0;
 
+  bool NativeLittleEndian;
+  bool ProgramLittleEndian;
+ SmallVector<bool, 4> LittleEndian;
+
 protected:
   MCStreamer(MCContext &Ctx);
 
   virtual void EmitCFIStartProcImpl(MCDwarfFrameInfo &Frame);
   virtual void EmitCFIEndProcImpl(MCDwarfFrameInfo &CurFrame);
 
-  WinEH::FrameInfo *getCurrentWinFrameInfo() {
+  SEHFrameInfo *getCurrentWinFrameInfo() {
     return CurrentWinFrameInfo;
   }
 
@@ -206,6 +264,34 @@ protected:
 
 public:
   virtual ~MCStreamer();
+
+  MCSymbol *EmitCFILabel();
+
+  // Returns the current value of the littel endian switch.
+  // The little endian switch is used by any emit routines thath have a
+  // "UseCurrentEndian" argument IFF that argument is true.
+  bool GetCurrentLittleEndian();
+  
+  /// Push a new value of the endian switch onto a stack of endian switches
+  /// and make it the current endian switch.
+  virtual void PushEndian(bool NewLittleEndian);
+  inline void PushLittleEndian() {PushEndian(true);}
+  inline void PushBigEndian() {PushEndian(false);}
+
+  /// Pop the top value off the endian switch stack, restoring the previous
+  /// value as the current endian switch.
+  virtual void PopEndian();
+  
+  /// Returns whether the target hardware is little endian.
+  bool GetNativeLittleEndian();
+
+  /// Get and set the value specified by options for program endian (default is native)
+  void SetProgramLittleEndian(bool NewProgramLittleEndian);
+  bool GetProgramLittleEndian();
+
+  /// Returns the number of endian switches pushed on the the little endian stack.
+  unsigned LittleEndianStackDepth();
+  
 
   void visitUsedExpr(const MCExpr &Expr);
   virtual void visitUsedSymbol(const MCSymbol &Sym);
@@ -232,7 +318,7 @@ public:
   bool hasUnfinishedDwarfFrameInfo();
 
   unsigned getNumWinFrameInfos() { return WinFrameInfos.size(); }
-  ArrayRef<WinEH::FrameInfo *> getWinFrameInfos() const {
+  ArrayRef<SEHFrameInfo *> getWinFrameInfos() const {
     return WinFrameInfos;
   }
 
@@ -382,6 +468,8 @@ public:
   /// Each emitted symbol will be tracked in the ordering table,
   /// so we can sort on them later.
   void AssignFragment(MCSymbol *Symbol, MCFragment *Fragment);
+
+  virtual SEHUnwindEmitter *getSEHUnwindEmitter();
 
   /// \brief Emit a label for \p Symbol into the current section.
   ///
@@ -550,12 +638,16 @@ public:
   /// \param Loc - The location of the expression for error reporting.
   virtual void EmitValueImpl(const MCExpr *Value, unsigned Size,
                              SMLoc Loc = SMLoc());
+  virtual void EmitValueSwappedImpl(const MCExpr *Value, unsigned Size,
+                             SMLoc Loc);
 
-  void EmitValue(const MCExpr *Value, unsigned Size, SMLoc Loc = SMLoc());
+  void EmitValue(const MCExpr *Value, unsigned Size, SMLoc Loc = SMLoc(),
+                 bool UseCurrentEndian = false);
 
   /// \brief Special case of EmitValue that avoids the client having
   /// to pass in a MCExpr for constant integers.
-  virtual void EmitIntValue(uint64_t Value, unsigned Size);
+  virtual void EmitIntValue(uint64_t Value, unsigned Size,
+                            bool UseCurrentEndian = false);
 
   virtual void EmitULEB128Value(const MCExpr *Value);
 
@@ -788,19 +880,28 @@ public:
   virtual void EmitCFIRegister(int64_t Register1, int64_t Register2);
   virtual void EmitCFIWindowSave();
 
-  virtual void EmitWinCFIStartProc(const MCSymbol *Symbol);
+  virtual void EmitWinCFIStartProc(const MCSymbol *Symbol,
+                                   const Function *F = nullptr, StringRef Name = "",
+                                   int32_t NArgs = -2, bool isSubroutine = false,
+                                   bool isFunction = false);
   virtual void EmitWinCFIEndProc();
   virtual void EmitWinCFIStartChained();
   virtual void EmitWinCFIEndChained();
-  virtual void EmitWinCFIPushReg(unsigned Register);
+  virtual void EmitWinCFIPushReg(unsigned Register, bool isFrameptr = false);
   virtual void EmitWinCFISetFrame(unsigned Register, unsigned Offset);
   virtual void EmitWinCFIAllocStack(unsigned Size);
   virtual void EmitWinCFISaveReg(unsigned Register, unsigned Offset);
   virtual void EmitWinCFISaveXMM(unsigned Register, unsigned Offset);
   virtual void EmitWinCFIPushFrame(bool Code);
   virtual void EmitWinCFIEndProlog();
+  virtual void EmitWinCFIGotSaveOffset(unsigned Offset);
+  virtual void EmitWinCFISaveBasePtr(unsigned Register, unsigned FrameOffset,
+                                     unsigned FrameEndSize = 0);
+  virtual void EmitWinCFIBeginEpilog();
+  virtual void EmitWinCFIEndEpilog();
 
   virtual void EmitWinEHHandler(const MCSymbol *Sym, bool Unwind, bool Except);
+  virtual void EmitWinEHHandlerTable(const MCSymbol *Table);
   virtual void EmitWinEHHandlerData();
 
   /// Get the .pdata section used for the given section. Typically the given

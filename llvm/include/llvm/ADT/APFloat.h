@@ -754,6 +754,9 @@ class APFloat : public APFloatBase {
       return *this;
     }
   } U;
+  
+  /// The bswap bit means the variable initializer should bswap this.
+  bool bswap = false;
 
   template <typename T> static bool usesLayout(const fltSemantics &Semantics) {
     static_assert(std::is_same<T, IEEEFloat>::value ||
@@ -1114,6 +1117,17 @@ public:
         convertToHexString(DST, HexDigits, UpperCase, RM));
   }
 
+  /// \name Bswap operations.
+  /// @{
+  
+  /// Note:  The bswap bit is just maintained for caller use:  It has
+  /// NO EFFECT on any other operations.
+  bool getBswap() { return bswap; }
+  void setBswap(bool b) { bswap = b; }
+  void invertBswap() { bswap = !bswap; }
+  
+  /// @}
+  
   bool isZero() const { return getCategory() == fcZero; }
   bool isInfinity() const { return getCategory() == fcInfinity; }
   bool isNaN() const { return getCategory() == fcNaN; }

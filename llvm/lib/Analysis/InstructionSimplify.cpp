@@ -4094,6 +4094,168 @@ Value *llvm::SimplifyCastInst(unsigned CastOpc, Value *Op, Type *Ty,
                             RecursionLimit);
 }
 
+static Value *SimplifyShuffleVectorInst(Value *LHS, Value *RHS, Value *Mask,
+                                        const Query &Q, unsigned MaxRecurse)
+{
+  int count = Mask->getType()->getVectorNumElements();
+  Constant *mask = dyn_cast<Constant>(Mask);
+  Constant *LHSmask = nullptr;
+  Constant *RHSmask = nullptr;
+  Value *LHSLHS = nullptr;
+  Value *LHSRHS = nullptr;
+  Value *RHSLHS = nullptr;
+  Value *RHSRHS = nullptr;
+  
+  bool identity[4] = {false, false, false, false};
+  // 0 LHSLHS
+  // 1 LHSRHS
+  // 2 RHSLHS
+  // 3 RHSRHS
+
+  assert(mask && "ShuffleVector mask operand is not Constant");
+
+  if (auto *SI = dyn_cast<Instruction>(LHS))
+  {
+    // Is LHS another Shuffle Vector?
+    if (SI->getOpcode() == Instruction::ShuffleVector)
+    {
+      LHSmask = dyn_cast<Constant>(SI->getOperand(2));
+      int LHSCount = LHS->getType()->getVectorNumElements();
+      LHSLHS = SI->getOperand(0);
+      int LHSLHSCount = LHSLHS->getType()->getVectorNumElements();
+
+      assert(LHSmask && "ShuffleVector mask operand is not Constant");
+      
+      // If both of the operands are unspec, we can optimize.
+      if (LHSCount == count)
+      {
+        if (LHSLHSCount == count)
+        {
+          identity[0] = true;
+        }
+
+        LHSRHS = SI->getOperand(1);
+        int LHSRHSCount = LHSRHS->getType()->getVectorNumElements();
+        
+        // If both of the operands are unspec, we can optimize.
+        if (LHSRHSCount == count)
+        {
+          identity[1] = true;
+        }
+      }
+    }
+  }
+  if (auto *SI = dyn_cast<Instruction>(RHS))
+  {
+    // Is RHS another Shuffle Vector?
+    if (SI->getOpcode() == Instruction::ShuffleVector)
+    {
+      RHSmask = dyn_cast<Constant>(SI->getOperand(2));
+      int RHSCount = RHS->getType()->getVectorNumElements();
+      RHSLHS = SI->getOperand(0);
+      int RHSLHSCount = RHSLHS->getType()->getVectorNumElements();
+ 
+      assert(RHSmask && "ShuffleVector mask operand is not Constant");
+      
+      // If both of the operands are unspec, we can optimize.
+      if (RHSCount == count)
+      {
+        if (RHSLHSCount == count)
+        {
+          identity[2] = true;
+        }
+        RHSRHS = SI->getOperand(1);
+        int RHSRHSCount = RHSRHS->getType()->getVectorNumElements();
+        
+        // If both of the operands are unspec, we can optimize.
+        if (RHSRHSCount == count)
+        {
+          identity[3] = true;
+        }
+      }
+    }
+  }
+  
+  // Check if the combined shuffle is identiy, ignoring UndefValues.
+  for (int j = 0; j < count; j++)
+  {
+    int sel1 = ShuffleVectorInst::getMaskValue(mask, j);
+    
+    // We either have a ConstantInt or UndefValue.
+    if (sel1 >= count)
+    {
+      sel1 -= count;
+      if (!RHSmask)
+        continue;
+
+      int sel2 = ShuffleVectorInst::getMaskValue(RHSmask, sel1);
+      if (sel2 >= count)
+      {
+        identity[0] = false;
+        identity[1] = false;
+        identity[2] = false;
+        sel2 -= count;
+        if (sel1 != sel2)
+          identity[3] = false;
+      }
+      else if (sel2 >= 0)
+      {
+        identity[0] = false;
+        identity[1] = false;
+        identity[3] = false;
+        if (sel1 != sel2)
+          identity[2] = false;
+      }
+    }
+    else if (sel1 >= 0)
+    {
+      if (!LHSmask)
+        continue;
+      
+      int sel2 = ShuffleVectorInst::getMaskValue(LHSmask, sel1);
+      if (sel2 >= count)
+      {
+        identity[0] = false;
+        identity[2] = false;
+        identity[3] = false;
+        if (sel1 != sel2)
+          identity[1] = false;
+      }
+      else if (sel2 >= 0)
+      {
+        identity[1] = false;
+        identity[2] = false;
+        identity[3] = false;
+        if (sel1 != sel2)
+          identity[0] = false;
+      }
+    }
+  }
+
+  // If two shuffles combine to identity, it's a noop.
+  if (identity[0])
+    return LHSLHS;
+  if (identity[1])
+    return LHSRHS;
+  if (identity[2])
+    return RHSLHS;
+  if (identity[3])
+    return RHSRHS;
+
+  // Otherwise, we can't optimize here.
+  return nullptr;
+}
+
+Value *llvm::SimplifyShuffleVectorInst(Value *LHS, Value *RHS, Value *Mask,
+                                       const DataLayout &DL,
+                                       const TargetLibraryInfo *TLI,
+                                       const DominatorTree *DT, AssumptionCache *AC,
+                                       const Instruction *CxtI)
+{
+  return ::SimplifyShuffleVectorInst(LHS, RHS, Mask, Query(DL, TLI, DT, AC, CxtI),
+                                     RecursionLimit);
+}
+
 //=== Helper functions for higher up the class hierarchy.
 
 /// Given operands for a BinaryOperator, see if we can fold the result.
@@ -4212,6 +4374,18 @@ Value *llvm::SimplifyCmpInst(unsigned Predicate, Value *LHS, Value *RHS,
                              const Instruction *CxtI) {
   return ::SimplifyCmpInst(Predicate, LHS, RHS, Query(DL, TLI, DT, AC, CxtI),
                            RecursionLimit);
+}
+
+// If some macro ended up generating bswap(bswap(...)), get rid of both.
+static Value *SimplifyBswapIntrinsic(Value *arg,
+                                     const Query &Q, unsigned MaxRecurse) {
+  Value *inArg = NULL;
+
+  if (match(arg, m_BSwap(m_Value(inArg)))) {
+    return inArg;
+  }
+  
+  return nullptr;
 }
 
 static bool IsIdempotent(Intrinsic::ID ID) {
@@ -4391,6 +4565,11 @@ static Value *SimplifyIntrinsic(Function *F, IterTy ArgBegin, IterTy ArgEnd,
       return PassthruArg;
     return nullptr;
   }
+  case Intrinsic::bswap:
+    if (NumOperands == 1)
+      return SimplifyBswapIntrinsic(*ArgBegin, Q, MaxRecurse);
+    return nullptr;
+      
   default:
     return nullptr;
   }
@@ -4587,6 +4766,10 @@ Value *llvm::SimplifyInstruction(Instruction *I, const DataLayout &DL,
                           TLI, DT, AC, I);
     break;
   }
+  case Instruction::ShuffleVector:
+    Result = SimplifyShuffleVectorInst(I->getOperand(0), I->getOperand(1),
+                                     I->getOperand(2), DL, TLI, DT, AC, I);
+    break;
 #define HANDLE_CAST_INST(num, opc, clas) case Instruction::opc:
 #include "llvm/IR/Instruction.def"
 #undef HANDLE_CAST_INST

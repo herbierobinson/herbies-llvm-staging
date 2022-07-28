@@ -43,9 +43,23 @@ void MCTargetStreamer::finish() {}
 
 void MCTargetStreamer::emitAssignment(MCSymbol *Symbol, const MCExpr *Value) {}
 
+SEHFrameInfo::~SEHFrameInfo() {}
+
+SEHUnwindEmitter::~SEHUnwindEmitter() {}
+SEHFrameInfo *SEHUnwindEmitter::createSEHFrameInfo(MCStreamer *Streamer,
+                                 SEHFrameInfo *PrevFrame)
+{ return nullptr; }
+
+void SEHUnwindEmitter::Emit(MCStreamer &Streamer) {
+}
+
+void SEHFrameInfo::EmitWinEHHandlerTable(const MCSymbol *Table) {}
+
 MCStreamer::MCStreamer(MCContext &Ctx)
     : Context(Ctx), CurrentWinFrameInfo(nullptr) {
   SectionStack.push_back(std::pair<MCSectionSubPair, MCSectionSubPair>());
+  NativeLittleEndian = Ctx.getAsmInfo()->isLittleEndian();
+  ProgramLittleEndian = NativeLittleEndian;
 }
 
 MCStreamer::~MCStreamer() {
@@ -62,6 +76,8 @@ void MCStreamer::reset() {
   SymbolOrdering.clear();
   SectionStack.clear();
   SectionStack.push_back(std::pair<MCSectionSubPair, MCSectionSubPair>());
+  while(LittleEndianStackDepth()> 0)
+    LittleEndian.pop_back();
 }
 
 raw_ostream &MCStreamer::GetCommentOS() {
@@ -82,12 +98,14 @@ void MCStreamer::generateCompactUnwindEncodings(MCAsmBackend *MAB) {
 
 /// EmitIntValue - Special case of EmitValue that avoids the client having to
 /// pass in a MCExpr for constant integers.
-void MCStreamer::EmitIntValue(uint64_t Value, unsigned Size) {
+void MCStreamer::EmitIntValue(uint64_t Value, unsigned Size,
+                              bool UseCurrentEndian) {
   assert(1 <= Size && Size <= 8 && "Invalid size");
   assert((isUIntN(8 * Size, Value) || isIntN(8 * Size, Value)) &&
          "Invalid size");
   char buf[8];
-  const bool isLittleEndian = Context.getAsmInfo()->isLittleEndian();
+  const bool isLittleEndian = UseCurrentEndian ? GetCurrentLittleEndian() : Context.getAsmInfo()->isLittleEndian();
+
   for (unsigned i = 0; i != Size; ++i) {
     unsigned index = isLittleEndian ? i : (Size - i - 1);
     buf[i] = uint8_t(Value >> (index * 8));
@@ -113,8 +131,12 @@ void MCStreamer::EmitSLEB128IntValue(int64_t Value) {
   EmitBytes(OSE.str());
 }
 
-void MCStreamer::EmitValue(const MCExpr *Value, unsigned Size, SMLoc Loc) {
-  EmitValueImpl(Value, Size, Loc);
+void MCStreamer::EmitValue(const MCExpr *Value, unsigned Size, SMLoc Loc,
+                           bool UseCurrentEndian) {
+  if (UseCurrentEndian && GetCurrentLittleEndian() != NativeLittleEndian)
+    EmitValueSwappedImpl(Value, Size, Loc);
+  else
+    EmitValueImpl(Value, Size, Loc);
 }
 
 void MCStreamer::EmitSymbolValue(const MCSymbol *Sym, unsigned Size,
@@ -497,28 +519,38 @@ void MCStreamer::EnsureValidWinFrameInfo() {
   const MCAsmInfo *MAI = Context.getAsmInfo();
   if (!MAI->usesWindowsCFI())
     report_fatal_error(".seh_* directives are not supported on this target");
-  if (!CurrentWinFrameInfo || CurrentWinFrameInfo->End)
+  if (!CurrentWinFrameInfo || !CurrentWinFrameInfo->isValidWinFrameInfo())
     report_fatal_error("No open Win64 EH frame function!");
 }
 
-void MCStreamer::EmitWinCFIStartProc(const MCSymbol *Symbol) {
+SEHUnwindEmitter *MCStreamer::getSEHUnwindEmitter() {
+  return nullptr;
+}
+
+void MCStreamer::EmitWinCFIStartProc(const MCSymbol *Symbol,
+                                     const Function *F, StringRef Name,
+                                     int32_t NArg, bool isSubroutine,
+                                     bool isFunction) {
   const MCAsmInfo *MAI = Context.getAsmInfo();
-  if (!MAI->usesWindowsCFI())
+  SEHUnwindEmitter *ue = getSEHUnwindEmitter();
+  if (!MAI->usesWindowsCFI() || !ue)
     report_fatal_error(".seh_* directives are not supported on this target");
-  if (CurrentWinFrameInfo && !CurrentWinFrameInfo->End)
+  SEHFrameInfo *fi = ue->createSEHFrameInfo(this);
+  if (CurrentWinFrameInfo && CurrentWinFrameInfo->isValidWinFrameInfo())
     report_fatal_error("Starting a function before ending the previous one!");
 
-  MCSymbol *StartProc = EmitCFILabel();
+  WinFrameInfos.push_back(fi);
 
-  WinFrameInfos.push_back(new WinEH::FrameInfo(Symbol, StartProc));
   CurrentWinFrameInfo = WinFrameInfos.back();
-  CurrentWinFrameInfo->TextSection = getCurrentSectionOnly();
+  CurrentWinFrameInfo->EmitWinCFIStartProc(Symbol, F, Name, NArg,
+                                           isSubroutine, isFunction);
 }
 
 void MCStreamer::EmitWinCFIEndProc() {
   EnsureValidWinFrameInfo();
-  if (CurrentWinFrameInfo->ChainedParent)
+  if (CurrentWinFrameInfo->GetChainedParent())
     report_fatal_error("Not all chained regions terminated!");
+  CurrentWinFrameInfo->EmitWinCFIEndProc();
 
   MCSymbol *Label = EmitCFILabel();
   CurrentWinFrameInfo->End = Label;
@@ -527,44 +559,44 @@ void MCStreamer::EmitWinCFIEndProc() {
 void MCStreamer::EmitWinCFIStartChained() {
   EnsureValidWinFrameInfo();
 
-  MCSymbol *StartProc = EmitCFILabel();
+  SEHUnwindEmitter *ue = getSEHUnwindEmitter();
 
-  WinFrameInfos.push_back(new WinEH::FrameInfo(CurrentWinFrameInfo->Function,
-                                               StartProc, CurrentWinFrameInfo));
+  WinFrameInfos.push_back(ue->createSEHFrameInfo(this, CurrentWinFrameInfo));
   CurrentWinFrameInfo = WinFrameInfos.back();
-  CurrentWinFrameInfo->TextSection = getCurrentSectionOnly();
+  CurrentWinFrameInfo->EmitWinCFIStartChained();
 }
 
 void MCStreamer::EmitWinCFIEndChained() {
   EnsureValidWinFrameInfo();
-  if (!CurrentWinFrameInfo->ChainedParent)
+  if (!CurrentWinFrameInfo->GetChainedParent())
     report_fatal_error("End of a chained region outside a chained region!");
+  
+  CurrentWinFrameInfo = CurrentWinFrameInfo->EmitWinCFIEndChained();
 
   MCSymbol *Label = EmitCFILabel();
 
   CurrentWinFrameInfo->End = Label;
-  CurrentWinFrameInfo =
-      const_cast<WinEH::FrameInfo *>(CurrentWinFrameInfo->ChainedParent);
+  CurrentWinFrameInfo = CurrentWinFrameInfo->GetChainedParent();
 }
 
 void MCStreamer::EmitWinEHHandler(const MCSymbol *Sym, bool Unwind,
                                   bool Except) {
   EnsureValidWinFrameInfo();
-  if (CurrentWinFrameInfo->ChainedParent)
+  if (CurrentWinFrameInfo->GetChainedParent())
     report_fatal_error("Chained unwind areas can't have handlers!");
-  CurrentWinFrameInfo->ExceptionHandler = Sym;
   if (!Except && !Unwind)
     report_fatal_error("Don't know what kind of handler this is!");
-  if (Unwind)
-    CurrentWinFrameInfo->HandlesUnwind = true;
-  if (Except)
-    CurrentWinFrameInfo->HandlesExceptions = true;
+  CurrentWinFrameInfo->EmitWinEHHandler(Sym, Unwind, Except);
+}
+
+void MCStreamer::EmitWinEHHandlerTable(const MCSymbol *Table) {
+  EnsureValidWinFrameInfo();
+  CurrentWinFrameInfo->EmitWinEHHandlerTable(Table);
 }
 
 void MCStreamer::EmitWinEHHandlerData() {
   EnsureValidWinFrameInfo();
-  if (CurrentWinFrameInfo->ChainedParent)
-    report_fatal_error("Chained unwind areas can't have handlers!");
+  CurrentWinFrameInfo->EmitWinEHHandlerData();
 }
 
 static MCSection *getWinCFISection(MCContext &Context, unsigned *NextWinCFIID,
@@ -601,86 +633,60 @@ MCSection *MCStreamer::getAssociatedXDataSection(const MCSection *TextSec) {
 
 void MCStreamer::EmitSyntaxDirective() {}
 
-void MCStreamer::EmitWinCFIPushReg(unsigned Register) {
+void MCStreamer::EmitWinCFIPushReg(unsigned Register, bool isFrameptr) {
   EnsureValidWinFrameInfo();
-
-  MCSymbol *Label = EmitCFILabel();
-
-  WinEH::Instruction Inst = Win64EH::Instruction::PushNonVol(Label, Register);
-  CurrentWinFrameInfo->Instructions.push_back(Inst);
+  CurrentWinFrameInfo->EmitWinCFIPushReg(Register, isFrameptr);
 }
 
 void MCStreamer::EmitWinCFISetFrame(unsigned Register, unsigned Offset) {
   EnsureValidWinFrameInfo();
-  if (CurrentWinFrameInfo->LastFrameInst >= 0)
-    report_fatal_error("Frame register and offset already specified!");
-  if (Offset & 0x0F)
-    report_fatal_error("Misaligned frame pointer offset!");
-  if (Offset > 240)
-    report_fatal_error("Frame offset must be less than or equal to 240!");
-
-  MCSymbol *Label = EmitCFILabel();
-
-  WinEH::Instruction Inst =
-      Win64EH::Instruction::SetFPReg(Label, Register, Offset);
-  CurrentWinFrameInfo->LastFrameInst = CurrentWinFrameInfo->Instructions.size();
-  CurrentWinFrameInfo->Instructions.push_back(Inst);
+  CurrentWinFrameInfo->EmitWinCFISetFrame(Register, Offset);
 }
 
 void MCStreamer::EmitWinCFIAllocStack(unsigned Size) {
   EnsureValidWinFrameInfo();
-  if (Size == 0)
-    report_fatal_error("Allocation size must be non-zero!");
-  if (Size & 7)
-    report_fatal_error("Misaligned stack allocation!");
-
-  MCSymbol *Label = EmitCFILabel();
-
-  WinEH::Instruction Inst = Win64EH::Instruction::Alloc(Label, Size);
-  CurrentWinFrameInfo->Instructions.push_back(Inst);
+  CurrentWinFrameInfo->EmitWinCFIAllocStack(Size);
 }
 
 void MCStreamer::EmitWinCFISaveReg(unsigned Register, unsigned Offset) {
   EnsureValidWinFrameInfo();
-  if (Offset & 7)
-    report_fatal_error("Misaligned saved register offset!");
-
-  MCSymbol *Label = EmitCFILabel();
-
-  WinEH::Instruction Inst =
-      Win64EH::Instruction::SaveNonVol(Label, Register, Offset);
-  CurrentWinFrameInfo->Instructions.push_back(Inst);
+  CurrentWinFrameInfo->EmitWinCFISaveReg(Register, Offset);
 }
 
 void MCStreamer::EmitWinCFISaveXMM(unsigned Register, unsigned Offset) {
   EnsureValidWinFrameInfo();
-  if (Offset & 0x0F)
-    report_fatal_error("Misaligned saved vector register offset!");
-
-  MCSymbol *Label = EmitCFILabel();
-
-  WinEH::Instruction Inst =
-      Win64EH::Instruction::SaveXMM(Label, Register, Offset);
-  CurrentWinFrameInfo->Instructions.push_back(Inst);
+  CurrentWinFrameInfo->EmitWinCFISaveXMM(Register, Offset);
 }
 
 void MCStreamer::EmitWinCFIPushFrame(bool Code) {
   EnsureValidWinFrameInfo();
-  if (CurrentWinFrameInfo->Instructions.size() > 0)
-    report_fatal_error("If present, PushMachFrame must be the first UOP");
-
-  MCSymbol *Label = EmitCFILabel();
-
-  WinEH::Instruction Inst = Win64EH::Instruction::PushMachFrame(Label, Code);
-  CurrentWinFrameInfo->Instructions.push_back(Inst);
+  CurrentWinFrameInfo->EmitWinCFIPushFrame(Code);
 }
 
 void MCStreamer::EmitWinCFIEndProlog() {
   EnsureValidWinFrameInfo();
+  CurrentWinFrameInfo->EmitWinCFIEndProlog();
+}
 
-  MCSymbol *Label = EmitCFILabel();
+void MCStreamer::EmitWinCFIGotSaveOffset(unsigned Offset) {
+  EnsureValidWinFrameInfo();
+  CurrentWinFrameInfo->EmitWinCFIGotSaveOffset(Offset);
+}
 
-  CurrentWinFrameInfo->PrologEnd = Label;
+void MCStreamer::EmitWinCFISaveBasePtr(unsigned Register, unsigned FrameOffset,
+                                       unsigned FrameEndSize) {
+  EnsureValidWinFrameInfo();
+  CurrentWinFrameInfo->EmitWinCFISaveBasePtr(Register, FrameOffset, FrameEndSize);
+}
+
+void MCStreamer::EmitWinCFIBeginEpilog() {
+  EnsureValidWinFrameInfo();
+  CurrentWinFrameInfo->EmitWinCFIBeginEpilog();
+}
+
+void MCStreamer::EmitWinCFIEndEpilog() {
+  EnsureValidWinFrameInfo();
+  CurrentWinFrameInfo->EmitWinCFIEndEpilog();
 }
 
 void MCStreamer::EmitCOFFSafeSEH(MCSymbol const *Symbol) {
@@ -809,6 +815,11 @@ void MCStreamer::EmitBinaryData(StringRef Data) { EmitBytes(Data); }
 void MCStreamer::EmitValueImpl(const MCExpr *Value, unsigned Size, SMLoc Loc) {
   visitUsedExpr(*Value);
 }
+
+void MCStreamer::EmitValueSwappedImpl(const MCExpr *Value, unsigned Size, SMLoc Loc) {
+  report_fatal_error("unsupported directive in streamer");
+}
+
 void MCStreamer::EmitULEB128Value(const MCExpr *Value) {}
 void MCStreamer::EmitSLEB128Value(const MCExpr *Value) {}
 void MCStreamer::emitFill(const MCExpr &NumBytes, uint64_t Value, SMLoc Loc) {}
@@ -851,3 +862,45 @@ MCSymbol *MCStreamer::endSection(MCSection *Section) {
   EmitLabel(Sym);
   return Sym;
 }
+
+bool MCStreamer::GetCurrentLittleEndian() {
+  if (LittleEndian.end() > LittleEndian.begin())
+    return LittleEndian.end()-1;
+  else
+    return ProgramLittleEndian;
+}
+
+void MCStreamer::PushEndian(bool NewLittleEndian) {
+  LittleEndian.push_back(NewLittleEndian);
+}
+
+void MCStreamer::PopEndian() {
+  assert(LittleEndianStackDepth() > 0);
+
+  LittleEndian.pop_back();
+}
+
+bool MCStreamer::GetNativeLittleEndian() {
+  assert(LittleEndian.end() >= LittleEndian.begin());
+  
+  return NativeLittleEndian;
+}
+
+void MCStreamer::SetProgramLittleEndian(bool NewProgramLittleEndian) {
+  ProgramLittleEndian = NewProgramLittleEndian;
+}
+
+bool MCStreamer::GetProgramLittleEndian() {
+  assert(LittleEndian.end() >= LittleEndian.begin());
+  
+  return ProgramLittleEndian;
+}
+
+unsigned MCStreamer::LittleEndianStackDepth() {
+  // The value of program endian switch is pushed onto the vector,
+  // but should not be visible to push and pop operations.
+  assert(LittleEndian.end() >= LittleEndian.begin());
+  
+  return LittleEndian.end() - LittleEndian.begin();
+}
+
